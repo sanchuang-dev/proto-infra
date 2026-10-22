@@ -1,0 +1,147 @@
+# Apply only the Benefit Hub Caddy ingress. This never rebuilds static prototypes.
+# Deliberately manual and allowed only from proto-infra/prod.
+name: Publish Benefit Hub Caddy ingress
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proto-infra-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.repository == 'sanchuang-dev/proto-infra' && github.ref == 'refs/heads/prod'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Confirm exact Caddy-only contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-list --count HEAD)" -ge 2
+          git show HEAD^:Caddyfile > "$RUNNER_TEMP/old.Caddyfile"
+          test -s "$RUNNER_TEMP/old.Caddyfile"
+          test -s Caddyfile
+          grep -Fxq '# Managed by sanchuang-dev/proto-infra' Caddyfile
+          test "$(grep -Fc 'benefit.proto.3cgroup.cn {' Caddyfile)" -eq 1
+          grep -Fxq '    reverse_proxy 127.0.0.1:18080' Caddyfile
+          grep -Fxq '    header X-Robots-Tag "noindex, nofollow"' Caddyfile
+          # Reject unexpected Caddy changes in the same promotion.
+          python3 - <<'PY'
+          from pathlib import Path
+          a=Path(__import__('os').environ['RUNNER_TEMP'],'old.Caddyfile').read_text()
+          b=Path('Caddyfile').read_text()
+          old_header="# Each prototype is public, static, and independent. DNS must point to this server."
+          new_header="# Prototype gateway: static snapshots plus explicitly approved system-prototype proxies.\n# Every hostname is declared; DNS must point to the company prototype server."
+          addition='''\n# Benefit Hub is a system-level prototype, not a live entitlement fulfillment service.
+          # Application lifecycle is owned by sanchuang-dev/benefit-hub (dev); Caddy stays here.
+          benefit.proto.3cgroup.cn {
+              encode zstd gzip
+              header X-Robots-Tag "noindex, nofollow"
+              reverse_proxy 127.0.0.1:18080
+          }
+          '''
+          if old_header not in a or a.replace(old_header,new_header)+addition != b:
+              raise SystemExit("Unexpected Caddy changes: refuse ingress-only deployment")
+          PY
+      - name: Install verified SSH client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends sshpass >/dev/null
+      - name: Publish isolated Caddy route with rollback and HTTPS validation
+        shell: bash
+        env:
+          TARGET_HOST: ${{ secrets.PROTO_HOST }}
+          TARGET_USER: ${{ secrets.PROTO_USER }}
+          TARGET_PORT: ${{ secrets.PROTO_SSH_PORT }}
+          SSHPASS: ${{ secrets.PROTO_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$TARGET_HOST" && test -n "$TARGET_USER" && test -n "$SSHPASS"
+          case "$TARGET_HOST" in 8.148.148.135|proto.3cgroup.cn) ;; *) echo "::error::Unapproved host"; exit 1 ;; esac
+          case "$TARGET_USER" in *[!a-zA-Z0-9_.-]*|'') exit 1 ;; esac
+          case "$TARGET_PORT" in *[!0-9]*|'') exit 1 ;; esac
+          test "$(getent ahostsv4 proto.3cgroup.cn | awk 'NR==1 {print $1}')" = "8.148.148.135"
+          test "$(getent ahostsv4 benefit.proto.3cgroup.cn | awk 'NR==1 {print $1}')" = "8.148.148.135"
+          mkdir -m 700 -p "$RUNNER_TEMP/ssh"
+          ssh-keyscan -T 10 -p "$TARGET_PORT" -t ed25519 "$TARGET_HOST" 2>/dev/null > "$RUNNER_TEMP/ssh/known_hosts"
+          test -s "$RUNNER_TEMP/ssh/known_hosts"
+          host_fingerprint="$(ssh-keygen -lf "$RUNNER_TEMP/ssh/known_hosts" -E sha256 | awk 'NR==1 {print $2}')"
+          test "$host_fingerprint" = "SHA256:wRPdG4mucUA07fKN1V/Fes+r38VK0zYWXZ4BYm/6Niw" || { echo "::error::SSH identity mismatch"; exit 1; }
+          ssh_opts=(-o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ConnectTimeout=12 -p "$TARGET_PORT")
+          scp_opts=(-o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ConnectTimeout=12 -P "$TARGET_PORT")
+          remote() { sshpass -e ssh "${ssh_opts[@]}" "$TARGET_USER@$TARGET_HOST" "$@"; }
+          stage="$(remote 'mktemp -d /tmp/benefit-caddy.XXXXXX')"
+          [[ "$stage" =~ ^/tmp/benefit-caddy\.[A-Za-z0-9]+$ ]] || exit 1
+          sshpass -e scp -q "${scp_opts[@]}" "$RUNNER_TEMP/old.Caddyfile" Caddyfile "$TARGET_USER@$TARGET_HOST:$stage/"
+          # SCP preserves source basenames: old.Caddyfile and Caddyfile.
+          did_modify=0
+          rollback() {
+            if test "$did_modify" = 1; then
+              echo "::warning::HTTPS verification failed; restoring previous Caddyfile."
+              remote "bash -s '$stage'" <<'ROLLBACK' || :
+          set -euo pipefail
+          stage="$1"
+          cmp -s /etc/caddy/Caddyfile "$stage/Caddyfile" || exit 1
+          install -m 0644 "$stage/old.Caddyfile" /etc/caddy/Caddyfile.rollback
+          mv -f /etc/caddy/Caddyfile.rollback /etc/caddy/Caddyfile
+          systemctl reload caddy
+          ROLLBACK
+            fi
+          }
+          trap rollback ERR
+          remote "bash -s '$stage'" <<'REMOTE'
+          set -euo pipefail
+          stage="$1"
+          test "$(id -u)" -eq 0
+          systemctl is-active --quiet caddy
+          curl -fsS --max-time 5 http://127.0.0.1:18080/healthz |
+            grep -Fq '"service":"benefit-hub"'
+          grep -Fq 'Managed by sanchuang-dev/proto-infra' /etc/caddy/Caddyfile
+          if cmp -s /etc/caddy/Caddyfile "$stage/Caddyfile"; then
+            echo "CADDY_ALREADY_CURRENT=yes"
+            exit 0
+          fi
+          cmp -s /etc/caddy/Caddyfile "$stage/old.Caddyfile" || {
+            echo "Unexpected live Caddy drift; refusing overwrite" >&2
+            exit 1
+          }
+          /usr/local/bin/caddy validate --config "$stage/Caddyfile"
+          cp -p /etc/caddy/Caddyfile "$stage/backup.Caddyfile"
+          install -m 0644 "$stage/Caddyfile" /etc/caddy/Caddyfile.next
+          mv -f /etc/caddy/Caddyfile.next /etc/caddy/Caddyfile
+          if ! systemctl reload caddy; then
+            cp -p "$stage/backup.Caddyfile" /etc/caddy/Caddyfile
+            systemctl reload caddy || :
+            exit 1
+          fi
+          systemctl is-active --quiet caddy
+          echo "CADDY_INGRESS_APPLIED=yes"
+          REMOTE
+          did_modify=1
+          # Verify the actual public HTTPS entrypoint and existing sites.
+          for n in $(seq 1 10); do
+            if curl --fail --silent --show-error --retry 2 --retry-all-errors \
+                --connect-timeout 8 --max-time 15 \
+                https://benefit.proto.3cgroup.cn/healthz > "$RUNNER_TEMP/benefit-health.json"; then break; fi
+            sleep 6
+          done
+          grep -Fq '"service":"benefit-hub"' "$RUNNER_TEMP/benefit-health.json"
+          curl -fsSI --max-time 15 https://benefit.proto.3cgroup.cn/ |
+            tr -d '\r' | grep -iq '^x-robots-tag: noindex, nofollow$'
+          for host in proto ai-mirror beauty-mirror hair-mirror fitting-mirror; do
+            if test "$host" = proto; then url="https://proto.3cgroup.cn/"; else url="https://$host.proto.3cgroup.cn/"; fi
+            curl -fsSL --retry 2 --retry-all-errors --max-time 20 "$url" -o /dev/null
+            echo "EXISTING_SITE_HEALTHY=$host"
+          done
+          did_modify=0
+          trap - ERR
+          remote "rm -rf -- '$stage'"
+          echo "BENEFIT_PUBLIC_HTTPS_VERIFIED=yes"
