@@ -2,7 +2,9 @@
 
 Organization authority: `sanchuang-dev/.github/AGENTS.md` on current main.
 
-Purpose: company prototype **static hosting only** on an independent Aliyun instance, with Caddy. Never affect the existing primary production server.
+Purpose: company prototype hosting on an independent Aliyun instance, with Caddy. Static snapshots are the default; expressly approved system-level prototypes may have isolated loopback reverse-proxy site declarations here. Never affect the existing primary production server.
+
+- **Benefit Hub exception:** `benefit.proto.3cgroup.cn` is a system-level prototype. Its Hono/React Docker app lives in `sanchuang-dev/benefit-hub`, listens only on host `127.0.0.1:18080`, and has no real vendor fulfillment enabled. This repo owns only its Caddy ingress, not the app image, DB, credentials, or deploy workflow. No implied customer-ready status.
 
 - Environment flow: `feat/* → dev → test → prod`. `main` is administrative / landing and must not deploy.
 - This repo owns Caddy templates, portal static files, safe setup and deploy scripts. Individual apps own their source/build.
