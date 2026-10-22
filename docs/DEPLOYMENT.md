@@ -2,34 +2,33 @@
 
 ## Prerequisites
 
-An independent Aliyun instance with Linux, public IPv4, SSH username/password and Caddy installed. DNS records for `proto.3cgroup.cn` and each desired project host must point to this instance. Open inbound TCP 80/443 for ACME and HTTPS.
+Independent Aliyun Linux server with public IPv4, SSH username/password, and Caddy. Point DNS for `proto.3cgroup.cn` and explicitly configured subdomains to this server. Allow inbound TCP 80/443.
 
-**Login is SSH password** as requested, without forcing SSH key migration. Use a limited-purpose account where possible. Don't commit passwords or Aliyun console credentials.
-
-## GitHub Actions secrets & variables (in proto-infra)
+## GitHub Actions configuration
 
 | Kind | Name | Meaning |
 |---|---|---|
-| Variable | `PROTO_HOST` | IP or SSH hostname |
-| Variable | `PROTO_USER` | SSH login user |
-| Variable | `PROTO_SSH_PORT` | SSH port, e.g. 22 |
-| Secret | `PROTO_PASSWORD` | SSH login password |
-| Secret | `PROTO_KNOWN_HOSTS` | Verified ssh-keyscan known_hosts entry, obtained by checking fingerprint through trusted out-of-band channel |
+| Variable | `PROTO_HOST` | Server public IP |
+| Variable | `PROTO_USER` | SSH username |
+| Variable | `PROTO_SSH_PORT` | SSH port, normally 22 |
+| Secret | `PROTO_PASSWORD` | SSH password |
 
-## First server setup (manual, privileged)
+Only four fields. No private SSH key and no manually configured known-hosts secret.
 
-1. Install Caddy on the independent server; configure ACME account email as Caddy environment variable `ACME_EMAIL`.
-2. Create `/srv/proto/{portal,local-life,ai-mirror,college}/current`; grant the deployment user write permission only where needed.
-3. Install Caddyfile as `/etc/caddy/Caddyfile` after `caddy validate --config Caddyfile`; `systemctl reload caddy`.
-4. Ensure host DNS and 80/443 access are configured; inspect Caddy logs and verify live HTTPS.
-5. Do not replace an existing Caddyfile or broad server permissions without inspecting the machine.
+The workflow uses OpenSSH `StrictHostKeyChecking=accept-new` so the first presented host identity is accepted automatically. This *trust-on-first-use* mode removes setup work but **does not independently verify server identity at the first connection**. Hosted GitHub runners are ephemeral, so each run has the same first-connection exposure. Do not describe this as providing verified host authenticity.
 
-## Ongoing release
+## First server setup (administrator)
 
-The GitHub manual workflow checks out `prod` and syncs the infrastructure-owned `portal/` files only, to `/srv/proto/portal/current`. Caddy deployment is deliberately a separate server-admin step until an authenticated, privilege-scoped config reload strategy has been verified.
+1. Inspect the *new prototype instance*, its operating system and existing services before changing anything.
+2. Install Caddy; set `ACME_EMAIL` in the Caddy service environment.
+3. Prepare `/srv/proto/{portal,local-life,ai-mirror,college}/current`, with scoped write access for the login user.
+4. Validate the repository Caddyfile before installing it to `/etc/caddy/Caddyfile`. Reload Caddy after validation.
+5. Verify DNS, HTTPS and SPA refresh via actual external requests.
 
-Each product repository builds its own static distribution and can later invoke a controlled upload mechanism, independent of the infra portal. Don't copy product source into this repository.
+## Releases
 
-## Safety and rollback
+A manually dispatched workflow from `prod` only synchronizes the infrastructure portal to `/srv/proto/portal/current`. It does not remotely overwrite the Caddyfile or product build outputs. Product repositories build and publish separately after acceptance. Do not interpret a workflow success alone as confirmation that the live site works.
 
-Files are synced without deletion; stale content may require operator review. Use versioned release directories and atomic switching before enabling deletion or automatic rollback. No workflow job alone establishes that the runtime is healthy.
+## Safety
+
+Never store passwords in a committed file or logs. Do not run destructive synchronization by default. Production rollback and Caddy configuration updates require separate validation.
