@@ -23,27 +23,23 @@ jobs:
           PROTO_USER: ${{ vars.PROTO_USER }}
           PROTO_SSH_PORT: ${{ vars.PROTO_SSH_PORT }}
           PROTO_PASSWORD: ${{ secrets.PROTO_PASSWORD }}
-          PROTO_KNOWN_HOSTS: ${{ secrets.PROTO_KNOWN_HOSTS }}
         run: |
-          set -eu
-          for name in PROTO_HOST PROTO_USER PROTO_SSH_PORT PROTO_PASSWORD PROTO_KNOWN_HOSTS; do
-            if [ -z "${!name:-}" ]; then echo "::error::Missing required setting: $name"; exit 1; fi
+          set -euo pipefail
+          for name in PROTO_HOST PROTO_USER PROTO_SSH_PORT PROTO_PASSWORD; do
+            if [ -z "${!name:-}" ]; then echo "::error::Missing setting: $name"; exit 1; fi
           done
           [[ "$PROTO_SSH_PORT" =~ ^[0-9]+$ ]] || exit 1
-      - name: Upload portal through password-authenticated SSH
+      - name: Upload portal using SSH password
         env:
           PROTO_HOST: ${{ vars.PROTO_HOST }}
           PROTO_USER: ${{ vars.PROTO_USER }}
           PROTO_SSH_PORT: ${{ vars.PROTO_SSH_PORT }}
           SSHPASS: ${{ secrets.PROTO_PASSWORD }}
-          PROTO_KNOWN_HOSTS: ${{ secrets.PROTO_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq sshpass rsync
           install -d -m 700 "$HOME/.ssh"
-          printf '%s\n' "$PROTO_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
-          chmod 600 "$HOME/.ssh/known_hosts"
           sshpass -e rsync -az --no-perms --no-owner --no-group \
-            -e "ssh -p $PROTO_SSH_PORT -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts" \
+            -e "ssh -p $PROTO_SSH_PORT -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$HOME/.ssh/known_hosts" \
             portal/ "$PROTO_USER@$PROTO_HOST:/srv/proto/portal/current/"
