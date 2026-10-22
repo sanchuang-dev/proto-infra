@@ -25,6 +25,8 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Check isolated Caddy release script syntax
         shell: bash
         run: |
@@ -33,6 +35,21 @@ jobs:
             .github/workflows/deploy-benefit-caddy.yml "$RUNNER_TEMP/benefit-release.sh"
           bash -n "$RUNNER_TEMP/benefit-release.sh"
           echo "CADDY_RELEASE_SCRIPT_SYNTAX=valid"
+      - name: Test ingress-only release payload against immutable original
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby -ryaml -e 'w=YAML.load_file(ARGV.fetch(0)); s=w.fetch("jobs").fetch("deploy").fetch("steps").find{|x|x["name"]=="Confirm exact Caddy-only contract"}; abort "missing preflight script" unless s; File.write(ARGV.fetch(1), s.fetch("run"))' \
+            .github/workflows/deploy-benefit-caddy.yml "$RUNNER_TEMP/benefit-preflight.sh"
+          bash -n "$RUNNER_TEMP/benefit-preflight.sh"
+          bash "$RUNNER_TEMP/benefit-preflight.sh"
+          test -s "$RUNNER_TEMP/Caddyfile"
+          ! grep -Fq 'basic_auth' "$RUNNER_TEMP/Caddyfile"
+          grep -Fq 'benefit.proto.3cgroup.cn {' "$RUNNER_TEMP/Caddyfile"
+          docker run --rm --network none \
+            --volume "$RUNNER_TEMP/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2.11.7 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          echo "BENEFIT_INGRESS_ONLY_PAYLOAD=verified"
       - name: Validate exact Caddyfile syntax (offline)
         shell: bash
         run: |
