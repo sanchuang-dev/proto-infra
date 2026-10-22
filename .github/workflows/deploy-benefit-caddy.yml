@@ -3,6 +3,12 @@
 name: Publish Benefit Hub Caddy ingress
 
 on:
+  # The trusted prod merge is the release authorization; other branches never deploy.
+  push:
+    branches: [prod]
+    paths:
+      - Caddyfile
+      - .github/workflows/deploy-benefit-caddy.yml
   workflow_dispatch:
 
 permissions:
