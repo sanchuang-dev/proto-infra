@@ -11,6 +11,8 @@ Group=caddy
 Environment=HOME=/var/lib/caddy
 Environment=XDG_DATA_HOME=/var/lib/caddy/.local/share
 Environment=XDG_CONFIG_HOME=/var/lib/caddy/.config
+# Root-owned credentials, loaded by systemd and not readable by the Caddy user.
+EnvironmentFile=/etc/caddy/proto-auth.env
 ExecStart=/usr/local/bin/caddy run --config /etc/caddy/Caddyfile
 ExecReload=/usr/local/bin/caddy reload --config /etc/caddy/Caddyfile --force
 TimeoutStopSec=5s
