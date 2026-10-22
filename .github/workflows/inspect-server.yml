@@ -1,0 +1,92 @@
+name: Inspect prototype server (read only)
+on:
+  push:
+    branches: [feat/server-readonly-inspection]
+    paths:
+      - .github/workflows/inspect-server.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Verify existing credentials are configured
+        env:
+          PROTO_HOST: ${{ secrets.PROTO_HOST }}
+          PROTO_USER: ${{ secrets.PROTO_USER }}
+          PROTO_SSH_PORT: ${{ secrets.PROTO_SSH_PORT }}
+          SSHPASS: ${{ secrets.PROTO_SSH_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in PROTO_HOST PROTO_USER PROTO_SSH_PORT SSHPASS; do
+            if [[ -z "${!name:-}" ]]; then echo "::error::Missing required secret: $name"; exit 1; fi
+          done
+          [[ "$PROTO_SSH_PORT" =~ ^[0-9]+$ ]] || { echo "::error::Invalid SSH port"; exit 1; }
+          if [[ "$SSHPASS" == *"PRIVATE KEY"* ]]; then
+            echo "::error::PROTO_SSH_KEY must contain the SSH login password, not a private key."
+            exit 1
+          fi
+      - name: Read-only SSH diagnostics
+        env:
+          PROTO_HOST: ${{ secrets.PROTO_HOST }}
+          PROTO_USER: ${{ secrets.PROTO_USER }}
+          PROTO_SSH_PORT: ${{ secrets.PROTO_SSH_PORT }}
+          SSHPASS: ${{ secrets.PROTO_SSH_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          sshpass -e ssh -T -p "$PROTO_SSH_PORT" \
+            -o PreferredAuthentications=password \
+            -o PubkeyAuthentication=no \
+            -o NumberOfPasswordPrompts=1 \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            "$PROTO_USER@$PROTO_HOST" 'sh -s' <<'REMOTE'
+          set +e
+          echo "===== identity ====="
+          id
+          hostname
+          echo "===== os ====="
+          cat /etc/os-release | grep -E '^(NAME|VERSION|PRETTY_NAME)='
+          uname -sr
+          echo "===== uptime ====="
+          uptime
+          echo "===== memory ====="
+          free -h
+          echo "===== disks ====="
+          df -h /
+          echo "===== CPU ====="
+          (nproc || true)
+          echo "===== network listeners (no processes) ====="
+          (ss -ltn || netstat -ltn || true)
+          echo "===== Caddy installed / service ====="
+          if command -v caddy >/dev/null 2>&1; then caddy version; else echo "caddy not installed / not on PATH"; fi
+          if command -v systemctl >/dev/null 2>&1; then
+            systemctl is-active caddy || true
+            systemctl is-enabled caddy || true
+          else
+            echo "systemctl unavailable"
+          fi
+          echo "===== prototype directories ====="
+          for path in /srv/proto /srv/proto/portal/current /etc/caddy/Caddyfile; do
+            if [ -e "$path" ]; then ls -ld "$path"; else echo "missing: $path"; fi
+          done
+          echo "===== finished (read-only) ====="
+          REMOTE
+      - name: Check public DNS and HTTP(S)
+        shell: bash
+        run: |
+          set +e
+          echo "===== public DNS ====="
+          getent ahostsv4 proto.3cgroup.cn | head -n 3
+          echo "===== public HTTPS response ====="
+          curl -sSIL --max-time 12 https://proto.3cgroup.cn/ | sed -n '1,15p'
