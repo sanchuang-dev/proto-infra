@@ -59,4 +59,8 @@ jobs:
           curl -fsSL --retry 6 --retry-delay 3 --retry-all-errors --max-time 25 \
             https://proto.3cgroup.cn/ -o "$RUNNER_TEMP/actual-portal.html"
           cmp "$RUNNER_TEMP/generated-portal/index.html" "$RUNNER_TEMP/actual-portal.html"
+          ! grep -Fq 'class="project-repo"' "$RUNNER_TEMP/actual-portal.html"
+          ! grep -Fq 'GitHub 项目仓库 ↗' "$RUNNER_TEMP/actual-portal.html"
+          test "$(grep -o 'class="open-link"' "$RUNNER_TEMP/actual-portal.html" | wc -l)" -eq 6
+          echo "LIVE_PORTAL_REPO_BUTTONS=none"
           echo "LIVE_PORTAL_MATCHES_GENERATED_LAB_TEMPLATE=yes"
