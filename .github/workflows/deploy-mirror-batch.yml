@@ -3,12 +3,6 @@ name: Publish first mirror + companion batch
 # Manual dispatch still supports an intentionally requested mirror-batch republish.
 
 on:
-  push:
-    branches: [prod]
-    paths:
-      - portal/index.html
-      - scripts/prepare-mirror-batch.sh
-      - scripts/install-mirror-batch.sh
   workflow_dispatch:
 
 permissions:
@@ -60,29 +54,44 @@ jobs:
           [[ "$PROTO_SSH_PORT" =~ ^[0-9]+$ ]] || exit 1
           sudo apt-get update -qq
           sudo apt-get install -y -qq sshpass
-          install -d -m 0700 "$HOME/.ssh"
-          ssh_opts=(-o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=20)
+          install -d -m 0700 "$RUNNER_TEMP/ssh"
+          ssh-keyscan -T 10 -p "$PROTO_SSH_PORT" -t ed25519 "$PROTO_HOST" 2>/dev/null > "$RUNNER_TEMP/ssh/known_hosts"
+          test -s "$RUNNER_TEMP/ssh/known_hosts"
+          actual=$(ssh-keygen -lf "$RUNNER_TEMP/ssh/known_hosts" -E sha256 | awk 'NR==1{print $2}')
+          [[ "$actual" == 'SHA256:wRPdG4mucUA07fKN1V/Fes+r38VK0zYWXZ4BYm/6Niw' ]] || { echo "::error::SSH host identity mismatch"; exit 1; }
+          ssh_opts=(-o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=20)
           host="$PROTO_USER@$PROTO_HOST"
           stage=$(sshpass -e ssh -T -p "$PROTO_SSH_PORT" "${ssh_opts[@]}" "$host" 'mktemp -d /tmp/proto-mirrors.XXXXXX')
           [[ "$stage" =~ ^/tmp/proto-mirrors\.[A-Za-z0-9]+$ ]] || { echo "::error::Invalid stage directory"; exit 1; }
           sshpass -e scp -q -P "$PROTO_SSH_PORT" "${ssh_opts[@]}" \
-            "$RUNNER_TEMP"/mirrors/*.tar.gz Caddyfile "$RUNNER_TEMP/generated-portal/index.html" scripts/install-mirror-batch.sh \
+            "$RUNNER_TEMP"/mirrors/*.tar.gz Caddyfile "$RUNNER_TEMP/generated-portal/index.html" \
+            ops/caddy.service scripts/install-mirror-batch.sh scripts/validate-proto-auth.sh scripts/manage-proto-auth.sh \
             "$host:$stage/"
           sshpass -e ssh -T -p "$PROTO_SSH_PORT" "${ssh_opts[@]}" "$host" \
             "bash '$stage/install-mirror-batch.sh' '$stage'"
 
-      - name: Verify all five public HTTPS entrypoints
+      - name: Verify public portal and locked prototype hosts
         shell: bash
         run: |
           set -euo pipefail
-          for pair in 'proto:三创 · 演示中心' 'ai-mirror:见趣' 'beauty-mirror:美容院智能美妆镜' 'hair-mirror:AI 美发魔镜' 'fitting-mirror:AI 试衣魔镜'; do
-            slug="${pair%%:*}"
-            expected="${pair#*:}"
-            if [[ "$slug" == proto ]]; then url=https://proto.3cgroup.cn/; else url="https://$slug.proto.3cgroup.cn/"; fi
-            content=$(curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors --connect-timeout 8 --max-time 25 "$url")
-            [[ "$content" == *"$expected"* ]] || { echo "::error::Unexpected page content at $slug"; exit 1; }
-            echo "HTTPS_VERIFIED=$slug"
+          curl -fsSL --retry 4 --retry-delay 3 --max-time 25 https://proto.3cgroup.cn/ -o "$RUNNER_TEMP/home.html"
+          grep -q '三创 · 演示中心' "$RUNNER_TEMP/home.html"
+          echo "PUBLIC_PORTAL=200"
+          for slug in ai-mirror beauty-mirror hair-mirror fitting-mirror; do
+            host="https://$slug.proto.3cgroup.cn"
+            for path in / /index.html; do
+              status=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$host$path")
+              [[ "$status" == 401 ]] || { echo "::error::$slug $path returned $status instead of 401"; exit 1; }
+            done
+            wrong=$(curl -sS -o /dev/null -w '%{http_code}' -u demo:incorrect --max-time 20 "$host/")
+            [[ "$wrong" == 401 ]] || { echo "::error::$slug accepted incorrect credentials"; exit 1; }
+            echo "PROTECTED_SITE=$slug:401"
           done
-          curl -fsSL --retry 3 --retry-all-errors --max-time 25 -o /dev/null https://ai-mirror.proto.3cgroup.cn/assets/app.js
-          curl -fsSL --retry 3 --retry-all-errors --max-time 25 -o /dev/null https://beauty-mirror.proto.3cgroup.cn/assets/app.js
-          echo "STATIC_ASSETS_VERIFIED=yes"
+          for path in /assets/app.js /assets/tokens.css; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "https://ai-mirror.proto.3cgroup.cn$path")
+            [[ "$code" == 401 ]] || { echo "::error::Anonymous asset was exposed: $path"; exit 1; }
+          done
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://beauty-mirror.proto.3cgroup.cn/assets/app.js)
+          [[ "$code" == 401 ]] || { echo "::error::Anonymous beauty asset was exposed"; exit 1; }
+          echo "PROTECTED_ASSETS=401"
+          echo "AUTHENTICATED_BROWSER_ACCEPTANCE=requires_owner_password_check"
