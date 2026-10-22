@@ -1,8 +1,11 @@
 name: Check mirror prototype release
 on:
   push:
-    branches: [feat/mirror-first-batch, feat/reuse-lab-portal, feat/hide-portal-github-links, dev, test]
+    branches: [feat/mirror-first-batch, feat/reuse-lab-portal, feat/hide-portal-github-links, feat/per-site-caddy-auth, dev, test]
     paths:
+      - scripts/manage-proto-auth.sh
+      - scripts/validate-proto-auth.sh
+      - ops/caddy.service
       - scripts/build-lab-portal.sh
       - scripts/prepare-mirror-batch.sh
       - scripts/install-mirror-batch.sh
@@ -34,16 +37,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Caddy basic_auth intentionally refuses missing credentials; test with
+          # the public sample bcrypt hash from Caddy's docs, not real passwords.
+          example_hash='$2a$14$Zkx19XLiW6VYouLHR5NmfOFU0z2GTNmpkT/5qqR7hx4IjWJPDhjvG'
           docker run --rm --network none \
+            --env "PROTO_AI_MIRROR_HASH=$example_hash" \
+            --env "PROTO_BEAUTY_MIRROR_HASH=$example_hash" \
+            --env "PROTO_HAIR_MIRROR_HASH=$example_hash" \
+            --env "PROTO_FITTING_MIRROR_HASH=$example_hash" \
             --volume "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
-            caddy:2.10.2 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+            caddy:2.11.7 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
           grep -Fq 'benefit.proto.3cgroup.cn {' Caddyfile
           grep -Fq 'reverse_proxy 127.0.0.1:18080' Caddyfile
       - name: Validate scripts and source snapshots
         shell: bash
         run: |
           set -euo pipefail
-          bash -n scripts/build-lab-portal.sh scripts/prepare-mirror-batch.sh scripts/install-mirror-batch.sh
+          bash -n scripts/manage-proto-auth.sh scripts/validate-proto-auth.sh scripts/build-lab-portal.sh scripts/prepare-mirror-batch.sh scripts/install-mirror-batch.sh
           bash scripts/prepare-mirror-batch.sh "$RUNNER_TEMP/releases"
           for site in ai-mirror beauty-mirror hair-mirror fitting-mirror; do
             tar -tzf "$RUNNER_TEMP/releases/$site.tar.gz" > "$RUNNER_TEMP/$site.contents"
@@ -59,3 +69,28 @@ jobs:
           ! grep -Fq 'GitHub 项目仓库 ↗' "$RUNNER_TEMP/generated-portal/index.html"
           echo "PORTAL_GITHUB_REPO_ACTIONS=hidden"
           echo "LAB_PORTAL_SOURCE_REUSE=verified"
+      - name: Validate actual Caddy auth configuration with dummy hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 --retry-all-errors -o "$RUNNER_TEMP/caddy.tar.gz" \
+            https://github.com/caddyserver/caddy/releases/download/v2.11.7/caddy_2.11.7_linux_amd64.tar.gz
+          echo "727b91701a392de6ebc5027509f548bf39979e5216340d0faed8fa5e69c84f8b  $RUNNER_TEMP/caddy.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/caddy.tar.gz" -C "$RUNNER_TEMP" caddy
+          sudo install -m 0755 "$RUNNER_TEMP/caddy" /usr/local/bin/caddy
+          auth="$RUNNER_TEMP/test-proto-auth.env"
+          touch "$auth"
+          for key in PROTO_AI_MIRROR_HASH PROTO_BEAUTY_MIRROR_HASH PROTO_HAIR_MIRROR_HASH PROTO_FITTING_MIRROR_HASH; do
+            hash=$(printf 'dummy-demo-password-%s\n' "$key" | /usr/local/bin/caddy hash-password)
+            printf "%s='%s'\n" "$key" "$hash" >> "$auth"
+          done
+          sudo chown root:root "$auth"
+          sudo chmod 600 "$auth"
+          sudo bash scripts/validate-proto-auth.sh "$auth" Caddyfile
+          echo 'AUTHENTICATION_CONFIG_VALIDATED=yes'
+          sudo chmod 644 "$auth"
+          if sudo bash scripts/validate-proto-auth.sh "$auth" Caddyfile >/dev/null 2>&1; then
+            echo '::error::Insecure auth file unexpectedly accepted'
+            exit 1
+          fi
+          echo 'UNSAFE_AUTH_FILE_REJECTED=yes'
