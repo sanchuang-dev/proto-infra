@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: proto-first-mirror-batch
+  group: proto-infra-production
   cancel-in-progress: false
 
 jobs:
@@ -38,6 +38,13 @@ jobs:
           grep -Fxq './assets/app.js' "$RUNNER_TEMP/ai-mirror.contents"
           grep -Fxq './assets/app.js' "$RUNNER_TEMP/beauty-mirror.contents"
 
+      - name: Render shared lab-design portal
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/build-lab-portal.sh "$RUNNER_TEMP/generated-portal"
+          test -s "$RUNNER_TEMP/generated-portal/index.html"
+
       - name: Deploy via existing SSH password secrets
         shell: bash
         env:
@@ -59,7 +66,7 @@ jobs:
           stage=$(sshpass -e ssh -T -p "$PROTO_SSH_PORT" "${ssh_opts[@]}" "$host" 'mktemp -d /tmp/proto-mirrors.XXXXXX')
           [[ "$stage" =~ ^/tmp/proto-mirrors\.[A-Za-z0-9]+$ ]] || { echo "::error::Invalid stage directory"; exit 1; }
           sshpass -e scp -q -P "$PROTO_SSH_PORT" "${ssh_opts[@]}" \
-            "$RUNNER_TEMP"/mirrors/*.tar.gz Caddyfile portal/index.html scripts/install-mirror-batch.sh \
+            "$RUNNER_TEMP"/mirrors/*.tar.gz Caddyfile "$RUNNER_TEMP/generated-portal/index.html" scripts/install-mirror-batch.sh \
             "$host:$stage/"
           sshpass -e ssh -T -p "$PROTO_SSH_PORT" "${ssh_opts[@]}" "$host" \
             "bash '$stage/install-mirror-batch.sh' '$stage'"
@@ -68,7 +75,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for pair in 'proto:产品原型展示中心' 'ai-mirror:见趣' 'beauty-mirror:美容院智能美妆镜' 'hair-mirror:AI 美发魔镜' 'fitting-mirror:AI 试衣魔镜'; do
+          for pair in 'proto:三创 · 演示中心' 'ai-mirror:见趣' 'beauty-mirror:美容院智能美妆镜' 'hair-mirror:AI 美发魔镜' 'fitting-mirror:AI 试衣魔镜'; do
             slug="${pair%%:*}"
             expected="${pair#*:}"
             if [[ "$slug" == proto ]]; then url=https://proto.3cgroup.cn/; else url="https://$slug.proto.3cgroup.cn/"; fi
