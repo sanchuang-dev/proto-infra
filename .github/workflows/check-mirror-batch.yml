@@ -22,6 +22,23 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
+      - name: Check isolated Caddy release script syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby -ryaml -e 'w=YAML.load_file(ARGV.fetch(0)); s=w.fetch("jobs").fetch("deploy").fetch("steps").find{|x|x["name"]=="Publish isolated Caddy route with rollback and HTTPS validation"}; abort "missing deploy script" unless s; File.write(ARGV.fetch(1), s.fetch("run"))' \
+            .github/workflows/deploy-benefit-caddy.yml "$RUNNER_TEMP/benefit-release.sh"
+          bash -n "$RUNNER_TEMP/benefit-release.sh"
+          echo "CADDY_RELEASE_SCRIPT_SYNTAX=valid"
+      - name: Validate exact Caddyfile syntax (offline)
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network none \
+            --volume "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2.10.2 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          grep -Fq 'benefit.proto.3cgroup.cn {' Caddyfile
+          grep -Fq 'reverse_proxy 127.0.0.1:18080' Caddyfile
       - name: Validate scripts and source snapshots
         shell: bash
         run: |
