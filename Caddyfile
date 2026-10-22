@@ -1,0 +1,30 @@
+{
+    email {$ACME_EMAIL}
+}
+
+proto.3cgroup.cn {
+    root * /srv/proto/portal/current
+    encode zstd gzip
+    file_server
+}
+
+local-life.proto.3cgroup.cn {
+    root * /srv/proto/local-life/current
+    encode zstd gzip
+    try_files {path} /index.html
+    file_server
+}
+
+ai-mirror.proto.3cgroup.cn {
+    root * /srv/proto/ai-mirror/current
+    encode zstd gzip
+    try_files {path} /index.html
+    file_server
+}
+
+college.proto.3cgroup.cn {
+    root * /srv/proto/college/current
+    encode zstd gzip
+    try_files {path} /index.html
+    file_server
+}
