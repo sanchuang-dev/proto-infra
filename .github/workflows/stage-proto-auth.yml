@@ -1,0 +1,68 @@
+name: Stage prototype password management scripts
+
+# This step does not activate authentication or change Caddy's running config.
+on:
+  push:
+    branches: [prod]
+    paths:
+      - .github/workflows/stage-proto-auth.yml
+      - scripts/manage-proto-auth.sh
+      - scripts/validate-proto-auth.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proto-infra-production
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    if: github.ref == 'refs/heads/prod'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax and installation inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/manage-proto-auth.sh scripts/validate-proto-auth.sh
+      - name: Stage root-only interactive password initializer
+        shell: bash
+        env:
+          PROTO_HOST: ${{ secrets.PROTO_HOST }}
+          PROTO_USER: ${{ secrets.PROTO_USER }}
+          PROTO_SSH_PORT: ${{ secrets.PROTO_SSH_PORT }}
+          SSHPASS: ${{ secrets.PROTO_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          for name in PROTO_HOST PROTO_USER PROTO_SSH_PORT SSHPASS; do
+            [[ -n "${!name:-}" ]] || { echo "::error::Missing $name"; exit 1; }
+          done
+          [[ "$PROTO_SSH_PORT" =~ ^[0-9]+$ ]] || exit 1
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends sshpass
+          install -d -m 0700 "$RUNNER_TEMP/ssh"
+          ssh-keyscan -T 10 -p "$PROTO_SSH_PORT" -t ed25519 "$PROTO_HOST" 2>/dev/null > "$RUNNER_TEMP/ssh/known_hosts"
+          test -s "$RUNNER_TEMP/ssh/known_hosts"
+          actual=$(ssh-keygen -lf "$RUNNER_TEMP/ssh/known_hosts" -E sha256 | awk 'NR==1{print $2}')
+          [[ "$actual" == 'SHA256:wRPdG4mucUA07fKN1V/Fes+r38VK0zYWXZ4BYm/6Niw' ]] || { echo "::error::SSH identity mismatch"; exit 1; }
+          opts=(-o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=15)
+          target="$PROTO_USER@$PROTO_HOST"
+          stage=$(sshpass -e ssh -T -p "$PROTO_SSH_PORT" "${opts[@]}" "$target" 'mktemp -d /tmp/proto-auth-scripts.XXXXXX')
+          [[ "$stage" =~ ^/tmp/proto-auth-scripts\.[A-Za-z0-9]+$ ]] || exit 1
+          sshpass -e scp -q -P "$PROTO_SSH_PORT" "${opts[@]}" scripts/manage-proto-auth.sh scripts/validate-proto-auth.sh "$target:$stage/"
+          sshpass -e ssh -T -p "$PROTO_SSH_PORT" "${opts[@]}" "$target" "bash -s '$stage'" <<'REMOTE'
+          set -euo pipefail
+          stage="$1"
+          test "$(id -u)" = 0
+          test -x /usr/local/bin/caddy
+          install -d -m 0755 /usr/local/share/proto
+          for filename in manage-proto-auth.sh validate-proto-auth.sh; do
+            install -m 0755 "$stage/$filename" "/usr/local/share/proto/$filename"
+          done
+          rm -rf -- "$stage"
+          echo "PASSWORD_INITIALIZER=staged_no_credentials_created"
+          REMOTE
