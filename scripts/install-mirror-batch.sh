@@ -14,9 +14,21 @@ for slug in ai-mirror beauty-mirror hair-mirror fitting-mirror; do
 done
 test -s "$stage/Caddyfile"
 test -s "$stage/index.html"
-caddy validate --config "$stage/Caddyfile"
+test -s "$stage/caddy.service"
+test -s "$stage/validate-proto-auth.sh"
+test -s "$stage/manage-proto-auth.sh"
+# Fail closed before any live mutation; never reload a protected site without hashes.
+bash "$stage/validate-proto-auth.sh" /etc/caddy/proto-auth.env "$stage/Caddyfile"
 cp -p /etc/caddy/Caddyfile "$stage/caddy.prev"
 cp -p /srv/proto/portal/current/index.html "$stage/portal.prev"
+[[ -f /etc/systemd/system/caddy.service ]] || { echo "Missing existing Caddy unit" >&2; exit 1; }
+cp -p /etc/systemd/system/caddy.service "$stage/caddy.service.prev"
+install -d -m 0755 /usr/local/share/proto
+for name in validate-proto-auth.sh manage-proto-auth.sh; do
+  if [[ -f "/usr/local/share/proto/$name" ]]; then
+    cp -p "/usr/local/share/proto/$name" "$stage/$name.prev"
+  fi
+done
 for slug in ai-mirror beauty-mirror hair-mirror fitting-mirror; do
   readlink "/srv/proto/$slug/current" > "$stage/previous-$slug" || :
 done
@@ -24,6 +36,11 @@ rollback() {
   echo "ROLLBACK=starting"
   cp -p "$stage/caddy.prev" /etc/caddy/Caddyfile
   cp -p "$stage/portal.prev" /srv/proto/portal/current/index.html
+  cp -p "$stage/caddy.service.prev" /etc/systemd/system/caddy.service
+  for name in validate-proto-auth.sh manage-proto-auth.sh; do
+    if [[ -f "$stage/$name.prev" ]]; then cp -p "$stage/$name.prev" "/usr/local/share/proto/$name"
+    else rm -f "/usr/local/share/proto/$name"; fi
+  done
   for slug in ai-mirror beauty-mirror hair-mirror fitting-mirror; do
     if test -s "$stage/previous-$slug"; then
       ln -sfn "$(cat "$stage/previous-$slug")" "/srv/proto/$slug/current.rollback"
@@ -32,7 +49,8 @@ rollback() {
       rm -f "/srv/proto/$slug/current"
     fi
   done
-  systemctl reload caddy || :
+  systemctl daemon-reload || :
+  systemctl restart caddy || :
 }
 trap rollback ERR
 for slug in ai-mirror beauty-mirror hair-mirror fitting-mirror; do
@@ -52,12 +70,17 @@ for slug in ai-mirror beauty-mirror hair-mirror fitting-mirror; do
 done
 install -m 0644 "$stage/index.html" /srv/proto/portal/current/index.html
 install -m 0644 "$stage/Caddyfile" /etc/caddy/Caddyfile
-systemctl reload caddy
+install -m 0644 "$stage/caddy.service" /etc/systemd/system/caddy.service
+install -m 0755 "$stage/validate-proto-auth.sh" /usr/local/share/proto/validate-proto-auth.sh
+install -m 0755 "$stage/manage-proto-auth.sh" /usr/local/share/proto/manage-proto-auth.sh
+systemctl daemon-reload
+systemctl restart caddy
 systemctl is-active --quiet caddy
+bash /usr/local/share/proto/validate-proto-auth.sh /etc/caddy/proto-auth.env /etc/caddy/Caddyfile
 for slug in ai-mirror beauty-mirror hair-mirror fitting-mirror; do
   test -s "/srv/proto/$slug/current/index.html"
   echo "SITE_DEPLOYED=$slug"
 done
 trap - ERR
-echo 'CADDY_RELOADED=ok'
+echo 'CADDY_AUTH_RESTARTED=ok'
 rm -rf -- "$stage"
