@@ -1,0 +1,36 @@
+name: Check mirror prototype release
+on:
+  push:
+    branches: [feat/mirror-first-batch, dev, test]
+    paths:
+      - scripts/prepare-mirror-batch.sh
+      - scripts/install-mirror-batch.sh
+      - .github/workflows/check-mirror-batch.yml
+      - .github/workflows/deploy-mirror-batch.yml
+      - Caddyfile
+      - portal/index.html
+  pull_request:
+    branches: [dev, test, prod]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate scripts and source snapshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/prepare-mirror-batch.sh scripts/install-mirror-batch.sh
+          bash scripts/prepare-mirror-batch.sh "$RUNNER_TEMP/releases"
+          for site in ai-mirror beauty-mirror hair-mirror fitting-mirror; do
+            tar -tzf "$RUNNER_TEMP/releases/$site.tar.gz" > "$RUNNER_TEMP/$site.contents"
+            grep -Fxq './index.html' "$RUNNER_TEMP/$site.contents"
+          done
+          grep -Fxq './assets/app.js' "$RUNNER_TEMP/ai-mirror.contents"
+          grep -Fxq './assets/app.js' "$RUNNER_TEMP/beauty-mirror.contents"
+          echo "STATIC_SOURCE_SNAPSHOTS=valid"
