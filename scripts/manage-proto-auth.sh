@@ -36,7 +36,7 @@ for s in "${sites[@]}"; do
   if [[ "$mode" == rotate && "$slug" != "$s" ]]; then continue; fi
   pw=$(openssl rand -hex 16)
   [[ "${#pw}" -eq 32 ]] || exit 1
-  hash=$(printf '%s' "$pw" | /usr/local/bin/caddy hash-password --algorithm bcrypt)
+  hash=$(printf '%s\n' "$pw" | /usr/local/bin/caddy hash-password --algorithm bcrypt)
   fresh["$s"]="$pw"
   hashes["$s"]="$hash"
   unset pw hash
