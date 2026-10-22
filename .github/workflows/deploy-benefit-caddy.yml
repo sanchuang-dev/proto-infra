@@ -2,8 +2,8 @@
 # Deliberately manual and allowed only from proto-infra/prod.
 name: Publish Benefit Hub Caddy ingress
 
-# Legacy one-time benefit ingress script: never auto-run on unrelated Caddy changes.
-# Its exact-diff assertion must refuse anything beyond the original benefit-only change.
+# Ingress-only deployment: preserve all currently LIVE sites, refuse any unexpected
+# host drift, and never implicitly enable staged per-site auth settings.
 on:
   workflow_dispatch:
 
@@ -27,8 +27,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-list --count HEAD)" -ge 2
-          git show HEAD^:Caddyfile > "$RUNNER_TEMP/old.Caddyfile"
+          # Historical pre-Benefit live Caddyfile, independently checked by SHA.
+          # PR #22 introduced staged per-site auth templates, NOT yet live.
+          # Never ship those templates as part of an ingress-only release.
+          git show 8354ce0fef25b1840975c7d4e0c7d8c676632588:Caddyfile > "$RUNNER_TEMP/old.Caddyfile"
+          echo "3703c8904bbd1ebc8d9f6ec399a6dd51eb0c096f5bd6a6e3185b231ca5291780  $RUNNER_TEMP/old.Caddyfile" | sha256sum -c -
           test -s "$RUNNER_TEMP/old.Caddyfile"
           test -s Caddyfile
           grep -Fxq '# Managed by sanchuang-dev/proto-infra' Caddyfile
@@ -51,8 +54,13 @@ jobs:
               "    reverse_proxy 127.0.0.1:18080",
               "}",
           ]) + "\n"
-          if old_header not in a or a.replace(old_header,new_header)+addition != b:
-              raise SystemExit("Unexpected Caddy changes: refuse ingress-only deployment")
+          # The repository's desired Caddyfile contains auth staging work too.
+          # Check the approved ingress block but deliver only the original live
+          # Caddyfile plus this block: no auth/site changes or silent downgrades.
+          if old_header not in a or b.count("benefit.proto.3cgroup.cn {") != 1 or not b.endswith(addition):
+              raise SystemExit("Benefit ingress contract changed; refuse isolated deployment")
+          target = a.replace(old_header, new_header) + addition
+          Path(__import__('os').environ['RUNNER_TEMP'], 'Caddyfile').write_text(target)
           PY
       - name: Install verified SSH client
         run: |
@@ -83,7 +91,7 @@ jobs:
           remote() { sshpass -e ssh "${ssh_opts[@]}" "$TARGET_USER@$TARGET_HOST" "$@"; }
           stage="$(remote 'mktemp -d /tmp/benefit-caddy.XXXXXX')"
           [[ "$stage" =~ ^/tmp/benefit-caddy\.[A-Za-z0-9]+$ ]] || exit 1
-          sshpass -e scp -q "${scp_opts[@]}" "$RUNNER_TEMP/old.Caddyfile" Caddyfile "$TARGET_USER@$TARGET_HOST:$stage/"
+          sshpass -e scp -q "${scp_opts[@]}" "$RUNNER_TEMP/old.Caddyfile" "$RUNNER_TEMP/Caddyfile" "$TARGET_USER@$TARGET_HOST:$stage/"
           # SCP preserves source basenames: old.Caddyfile and Caddyfile.
           did_modify=0
           rollback() {
