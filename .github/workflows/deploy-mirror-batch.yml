@@ -1,14 +1,14 @@
 name: Publish first mirror + companion batch
+# Caddy-only changes are independently promoted by deploy-benefit-caddy.yml.
+# Manual dispatch still supports an intentionally requested mirror-batch republish.
 
 on:
   push:
     branches: [prod]
     paths:
-      - Caddyfile
       - portal/index.html
       - scripts/prepare-mirror-batch.sh
       - scripts/install-mirror-batch.sh
-      - .github/workflows/deploy-mirror-batch.yml
   workflow_dispatch:
 
 permissions:
