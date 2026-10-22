@@ -37,9 +37,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Caddy basic_auth intentionally refuses missing credentials; test with
+          # the public sample bcrypt hash from Caddy's docs, not real passwords.
+          example_hash='$2a$14$Zkx19XLiW6VYouLHR5NmfOFU0z2GTNmpkT/5qqR7hx4IjWJPDhjvG'
           docker run --rm --network none \
+            --env "PROTO_AI_MIRROR_HASH=$example_hash" \
+            --env "PROTO_BEAUTY_MIRROR_HASH=$example_hash" \
+            --env "PROTO_HAIR_MIRROR_HASH=$example_hash" \
+            --env "PROTO_FITTING_MIRROR_HASH=$example_hash" \
             --volume "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
-            caddy:2.10.2 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+            caddy:2.11.7 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
           grep -Fq 'benefit.proto.3cgroup.cn {' Caddyfile
           grep -Fq 'reverse_proxy 127.0.0.1:18080' Caddyfile
       - name: Validate scripts and source snapshots
