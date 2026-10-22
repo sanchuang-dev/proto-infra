@@ -37,6 +37,18 @@ for old, new in links.items():
     if html.count(old) != 1:
         raise SystemExit(f"Expected exactly one upstream link: {old}")
     html = html.replace(old, new, 1)
+
+# These are customer-facing prototype cards, not a GitHub repository directory.
+# Keep the upstream lab template unchanged; omit repository actions only on proto.
+import re
+repo_link = re.compile(
+    r'\n\s*<a class="project-repo" href="https://github\.com/sanchuang-dev/[a-z0-9-]+" '
+    r'aria-label="查看[^"]+GitHub 仓库">GitHub 项目仓库 ↗</a>'
+)
+html, removed = repo_link.subn("", html)
+if removed != 5 or 'class="project-repo"' in html or 'GitHub 项目仓库 ↗' in html:
+    raise SystemExit(f"Unexpected repository-link count or residual action: {removed}")
+print(f"PROTO_PORTAL_REPO_LINKS_REMOVED={removed}")
 if (html.count('class="project ') != 6 or
         "让想法" not in html or
         "先被看见" not in html or
