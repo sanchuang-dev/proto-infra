@@ -1,7 +1,7 @@
 name: Check mirror prototype release
 on:
   push:
-    branches: [feat/mirror-first-batch, feat/reuse-lab-portal, dev, test]
+    branches: [feat/mirror-first-batch, feat/reuse-lab-portal, feat/hide-portal-github-links, dev, test]
     paths:
       - scripts/build-lab-portal.sh
       - scripts/prepare-mirror-batch.sh
@@ -37,4 +37,8 @@ jobs:
           echo "STATIC_SOURCE_SNAPSHOTS=valid"
           bash scripts/build-lab-portal.sh "$RUNNER_TEMP/generated-portal"
           test -s "$RUNNER_TEMP/generated-portal/index.html"
+          test "$(grep -o 'class="open-link"' "$RUNNER_TEMP/generated-portal/index.html" | wc -l)" -eq 6
+          ! grep -Fq 'class="project-repo"' "$RUNNER_TEMP/generated-portal/index.html"
+          ! grep -Fq 'GitHub 项目仓库 ↗' "$RUNNER_TEMP/generated-portal/index.html"
+          echo "PORTAL_GITHUB_REPO_ACTIONS=hidden"
           echo "LAB_PORTAL_SOURCE_REUSE=verified"
