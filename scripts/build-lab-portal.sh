@@ -31,6 +31,7 @@ links = {
     'href="https://sanchuang-dev.github.io/ai-fitting-mirror/"': 'href="https://fitting-mirror.proto.3cgroup.cn/"',
     # Lingnan remains hosted at lab, not on proto: never emit a broken local route.
     'href="./lingnan/"': 'href="https://lab.3cgroup.cn/lingnan/"',
+    'location.replace("./local-life/" + location.hash);': 'location.replace("https://lab.3cgroup.cn/local-life/" + location.hash);',
 }
 for old, new in links.items():
     if html.count(old) != 1:
