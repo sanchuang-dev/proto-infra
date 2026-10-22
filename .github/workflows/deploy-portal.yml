@@ -42,11 +42,16 @@ jobs:
           done
           [[ "$PROTO_SSH_PORT" =~ ^[0-9]+$ ]] || exit 1
           sudo apt-get update -qq
-          sudo apt-get install -y -qq sshpass rsync
+          sudo apt-get install -y -qq sshpass
           install -d -m 700 "$HOME/.ssh"
-          sshpass -e rsync -az --no-perms --no-owner --no-group \
-            -e "ssh -p $PROTO_SSH_PORT -o PreferredAuthentications=password -o PubkeyAuthentication=no -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$HOME/.ssh/known_hosts" \
-            "$RUNNER_TEMP/generated-portal/" "$PROTO_USER@$PROTO_HOST:/srv/proto/portal/current/"
+          ssh_opts=(-o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" -o ConnectTimeout=20)
+          target="$PROTO_USER@$PROTO_HOST"
+          stage=$(sshpass -e ssh -T -p "$PROTO_SSH_PORT" "${ssh_opts[@]}" "$target" 'mktemp /tmp/proto-portal.XXXXXX')
+          [[ "$stage" =~ ^/tmp/proto-portal\.[A-Za-z0-9]+$ ]] || { echo "::error::Unsafe staging path"; exit 1; }
+          sshpass -e scp -q -P "$PROTO_SSH_PORT" "${ssh_opts[@]}" \
+            "$RUNNER_TEMP/generated-portal/index.html" "$target:$stage"
+          sshpass -e ssh -T -p "$PROTO_SSH_PORT" "${ssh_opts[@]}" "$target" \
+            "install -m 0644 '$stage' /srv/proto/portal/current/index.html.next && mv -f /srv/proto/portal/current/index.html.next /srv/proto/portal/current/index.html && rm -f '$stage'"
       - name: Verify exact published homepage and its links
         shell: bash
         run: |
