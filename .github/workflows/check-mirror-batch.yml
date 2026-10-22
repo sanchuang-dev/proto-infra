@@ -1,8 +1,9 @@
 name: Check mirror prototype release
 on:
   push:
-    branches: [feat/mirror-first-batch, dev, test]
+    branches: [feat/mirror-first-batch, feat/reuse-lab-portal, dev, test]
     paths:
+      - scripts/build-lab-portal.sh
       - scripts/prepare-mirror-batch.sh
       - scripts/install-mirror-batch.sh
       - .github/workflows/check-mirror-batch.yml
@@ -25,7 +26,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash -n scripts/prepare-mirror-batch.sh scripts/install-mirror-batch.sh
+          bash -n scripts/build-lab-portal.sh scripts/prepare-mirror-batch.sh scripts/install-mirror-batch.sh
           bash scripts/prepare-mirror-batch.sh "$RUNNER_TEMP/releases"
           for site in ai-mirror beauty-mirror hair-mirror fitting-mirror; do
             tar -tzf "$RUNNER_TEMP/releases/$site.tar.gz" > "$RUNNER_TEMP/$site.contents"
@@ -34,3 +35,6 @@ jobs:
           grep -Fxq './assets/app.js' "$RUNNER_TEMP/ai-mirror.contents"
           grep -Fxq './assets/app.js' "$RUNNER_TEMP/beauty-mirror.contents"
           echo "STATIC_SOURCE_SNAPSHOTS=valid"
+          bash scripts/build-lab-portal.sh "$RUNNER_TEMP/generated-portal"
+          test -s "$RUNNER_TEMP/generated-portal/index.html"
+          echo "LAB_PORTAL_SOURCE_REUSE=verified"
