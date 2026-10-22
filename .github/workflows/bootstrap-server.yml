@@ -57,6 +57,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
           install -d -m 0700 "$HOME/.ssh"
           ssh_opts=(-o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=20)
           ssh_addr="$PROTO_USER@$PROTO_HOST"
