@@ -48,6 +48,6 @@ for expected in ['ai-mirror', 'beauty-mirror', 'hair-mirror', 'fitting-mirror']:
         raise SystemExit(f"Missing local host: {expected}")
 dst.write_text(html, encoding="utf-8")
 print(f"PROTO_PORTAL_FROM_LAB={src.stat().st_size} upstream_bytes")
-print(f"PROTO_PORTAL_CARDS={html.count('class=\"project ')}")
+print("PROTO_PORTAL_CARDS=", html.count('class="project '), sep="")
 print(f"PROTO_PORTAL_WRITTEN={dst}")
 PY
