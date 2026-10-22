@@ -8,6 +8,9 @@ proto.3cgroup.cn {
 }
 
 ai-mirror.proto.3cgroup.cn {
+    basic_auth {
+        demo {env.PROTO_AI_MIRROR_HASH}
+    }
     root * /srv/proto/ai-mirror/current
     encode zstd gzip
     try_files {path} /index.html
@@ -15,18 +18,27 @@ ai-mirror.proto.3cgroup.cn {
 }
 
 beauty-mirror.proto.3cgroup.cn {
+    basic_auth {
+        demo {env.PROTO_BEAUTY_MIRROR_HASH}
+    }
     root * /srv/proto/beauty-mirror/current
     encode zstd gzip
     file_server
 }
 
 hair-mirror.proto.3cgroup.cn {
+    basic_auth {
+        demo {env.PROTO_HAIR_MIRROR_HASH}
+    }
     root * /srv/proto/hair-mirror/current
     encode zstd gzip
     file_server
 }
 
 fitting-mirror.proto.3cgroup.cn {
+    basic_auth {
+        demo {env.PROTO_FITTING_MIRROR_HASH}
+    }
     root * /srv/proto/fitting-mirror/current
     encode zstd gzip
     file_server
