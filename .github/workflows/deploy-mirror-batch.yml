@@ -31,11 +31,12 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/prepare-mirror-batch.sh "$RUNNER_TEMP/mirrors"
-          tar -tzf "$RUNNER_TEMP/mirrors/ai-mirror.tar.gz" | grep -Fxq './assets/app.js'
-          tar -tzf "$RUNNER_TEMP/mirrors/beauty-mirror.tar.gz" | grep -Fxq './assets/app.js'
           for slug in ai-mirror beauty-mirror hair-mirror fitting-mirror; do
-            tar -tzf "$RUNNER_TEMP/mirrors/$slug.tar.gz" | grep -Fxq './index.html'
+            tar -tzf "$RUNNER_TEMP/mirrors/$slug.tar.gz" > "$RUNNER_TEMP/$slug.contents"
+            grep -Fxq './index.html' "$RUNNER_TEMP/$slug.contents"
           done
+          grep -Fxq './assets/app.js' "$RUNNER_TEMP/ai-mirror.contents"
+          grep -Fxq './assets/app.js' "$RUNNER_TEMP/beauty-mirror.contents"
 
       - name: Deploy via existing SSH password secrets
         shell: bash
@@ -72,7 +73,7 @@ jobs:
             expected="${pair#*:}"
             if [[ "$slug" == proto ]]; then url=https://proto.3cgroup.cn/; else url="https://$slug.proto.3cgroup.cn/"; fi
             content=$(curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors --connect-timeout 8 --max-time 25 "$url")
-            printf '%s' "$content" | grep -Fq "$expected" || { echo "::error::Unexpected page content at $slug"; exit 1; }
+            [[ "$content" == *"$expected"* ]] || { echo "::error::Unexpected page content at $slug"; exit 1; }
             echo "HTTPS_VERIFIED=$slug"
           done
           curl -fsSL --retry 3 --retry-all-errors --max-time 25 -o /dev/null https://ai-mirror.proto.3cgroup.cn/assets/app.js
