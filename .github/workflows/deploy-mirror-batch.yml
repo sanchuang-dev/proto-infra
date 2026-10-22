@@ -1,0 +1,81 @@
+name: Publish first mirror + companion batch
+
+on:
+  push:
+    branches: [prod]
+    paths:
+      - Caddyfile
+      - portal/index.html
+      - scripts/prepare-mirror-batch.sh
+      - scripts/install-mirror-batch.sh
+      - .github/workflows/deploy-mirror-batch.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proto-first-mirror-batch
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/prod'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare pinned public prototypes
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/prepare-mirror-batch.sh "$RUNNER_TEMP/mirrors"
+          for slug in ai-mirror beauty-mirror hair-mirror fitting-mirror; do
+            tar -tzf "$RUNNER_TEMP/mirrors/$slug.tar.gz" > "$RUNNER_TEMP/$slug.contents"
+            grep -Fxq './index.html' "$RUNNER_TEMP/$slug.contents"
+          done
+          grep -Fxq './assets/app.js' "$RUNNER_TEMP/ai-mirror.contents"
+          grep -Fxq './assets/app.js' "$RUNNER_TEMP/beauty-mirror.contents"
+
+      - name: Deploy via existing SSH password secrets
+        shell: bash
+        env:
+          PROTO_HOST: ${{ secrets.PROTO_HOST }}
+          PROTO_USER: ${{ secrets.PROTO_USER }}
+          PROTO_SSH_PORT: ${{ secrets.PROTO_SSH_PORT }}
+          SSHPASS: ${{ secrets.PROTO_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          for name in PROTO_HOST PROTO_USER PROTO_SSH_PORT SSHPASS; do
+            if [[ -z "${!name:-}" ]]; then echo "::error::Missing $name"; exit 1; fi
+          done
+          [[ "$PROTO_SSH_PORT" =~ ^[0-9]+$ ]] || exit 1
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          install -d -m 0700 "$HOME/.ssh"
+          ssh_opts=(-o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=20)
+          host="$PROTO_USER@$PROTO_HOST"
+          stage=$(sshpass -e ssh -T -p "$PROTO_SSH_PORT" "${ssh_opts[@]}" "$host" 'mktemp -d /tmp/proto-mirrors.XXXXXX')
+          [[ "$stage" =~ ^/tmp/proto-mirrors\.[A-Za-z0-9]+$ ]] || { echo "::error::Invalid stage directory"; exit 1; }
+          sshpass -e scp -q -P "$PROTO_SSH_PORT" "${ssh_opts[@]}" \
+            "$RUNNER_TEMP"/mirrors/*.tar.gz Caddyfile portal/index.html scripts/install-mirror-batch.sh \
+            "$host:$stage/"
+          sshpass -e ssh -T -p "$PROTO_SSH_PORT" "${ssh_opts[@]}" "$host" \
+            "bash '$stage/install-mirror-batch.sh' '$stage'"
+
+      - name: Verify all five public HTTPS entrypoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pair in 'proto:产品原型展示中心' 'ai-mirror:见趣' 'beauty-mirror:美容院智能美妆镜' 'hair-mirror:AI 美发魔镜' 'fitting-mirror:AI 试衣魔镜'; do
+            slug="${pair%%:*}"
+            expected="${pair#*:}"
+            if [[ "$slug" == proto ]]; then url=https://proto.3cgroup.cn/; else url="https://$slug.proto.3cgroup.cn/"; fi
+            content=$(curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors --connect-timeout 8 --max-time 25 "$url")
+            [[ "$content" == *"$expected"* ]] || { echo "::error::Unexpected page content at $slug"; exit 1; }
+            echo "HTTPS_VERIFIED=$slug"
+          done
+          curl -fsSL --retry 3 --retry-all-errors --max-time 25 -o /dev/null https://ai-mirror.proto.3cgroup.cn/assets/app.js
+          curl -fsSL --retry 3 --retry-all-errors --max-time 25 -o /dev/null https://beauty-mirror.proto.3cgroup.cn/assets/app.js
+          echo "STATIC_ASSETS_VERIFIED=yes"
