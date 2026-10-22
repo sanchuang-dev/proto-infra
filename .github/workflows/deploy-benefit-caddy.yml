@@ -40,7 +40,7 @@ jobs:
           b=Path('Caddyfile').read_text()
           old_header="# Each prototype is public, static, and independent. DNS must point to this server."
           new_header="# Prototype gateway: static snapshots plus explicitly approved system-prototype proxies.\n# Every hostname is declared; DNS must point to the company prototype server."
-          addition = "\\n" + "\\n".join([
+          addition = "\n" + "\n".join([
               "# Benefit Hub is a system-level prototype, not a live entitlement fulfillment service.",
               "# Application lifecycle is owned by sanchuang-dev/benefit-hub (dev); Caddy stays here.",
               "benefit.proto.3cgroup.cn {",
@@ -48,7 +48,7 @@ jobs:
               '    header X-Robots-Tag "noindex, nofollow"',
               "    reverse_proxy 127.0.0.1:18080",
               "}",
-          ]) + "\\n"
+          ]) + "\n"
           if old_header not in a or a.replace(old_header,new_header)+addition != b:
               raise SystemExit("Unexpected Caddy changes: refuse ingress-only deployment")
           PY
