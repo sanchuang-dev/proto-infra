@@ -1,5 +1,6 @@
 # Managed by sanchuang-dev/proto-infra
-# Each prototype is public, static, and independent. DNS must point to this server.
+# Prototype gateway: static snapshots plus explicitly approved system-prototype proxies.
+# Every hostname is declared; DNS must point to the company prototype server.
 proto.3cgroup.cn {
     root * /srv/proto/portal/current
     encode zstd gzip
@@ -29,4 +30,12 @@ fitting-mirror.proto.3cgroup.cn {
     root * /srv/proto/fitting-mirror/current
     encode zstd gzip
     file_server
+}
+
+# Benefit Hub is a system-level prototype, not a live entitlement fulfillment service.
+# Application lifecycle is owned by sanchuang-dev/benefit-hub (dev); Caddy stays here.
+benefit.proto.3cgroup.cn {
+    encode zstd gzip
+    header X-Robots-Tag "noindex, nofollow"
+    reverse_proxy 127.0.0.1:18080
 }
