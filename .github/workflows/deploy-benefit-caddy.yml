@@ -2,13 +2,9 @@
 # Deliberately manual and allowed only from proto-infra/prod.
 name: Publish Benefit Hub Caddy ingress
 
+# Legacy one-time benefit ingress script: never auto-run on unrelated Caddy changes.
+# Its exact-diff assertion must refuse anything beyond the original benefit-only change.
 on:
-  # The trusted prod merge is the release authorization; other branches never deploy.
-  push:
-    branches: [prod]
-    paths:
-      - Caddyfile
-      - .github/workflows/deploy-benefit-caddy.yml
   workflow_dispatch:
 
 permissions:
