@@ -77,6 +77,14 @@ systemctl daemon-reload
 systemctl restart caddy
 systemctl is-active --quiet caddy
 bash /usr/local/share/proto/validate-proto-auth.sh /etc/caddy/proto-auth.env /etc/caddy/Caddyfile
+# Keep the rollback trap armed until the newly restarted, local HTTPS gateway
+# is confirmed to challenge anonymous requests for every private hostname.
+for slug in ai-mirror beauty-mirror hair-mirror fitting-mirror; do
+  code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 12 \
+    --resolve "$slug.proto.3cgroup.cn:443:127.0.0.1" "https://$slug.proto.3cgroup.cn/")
+  [[ "$code" == 401 ]] || { echo "AUTH_SMOKE_FAILED=$slug:$code" >&2; false; }
+done
+echo 'LOCAL_AUTH_SMOKE=all_401'
 for slug in ai-mirror beauty-mirror hair-mirror fitting-mirror; do
   test -s "/srv/proto/$slug/current/index.html"
   echo "SITE_DEPLOYED=$slug"
