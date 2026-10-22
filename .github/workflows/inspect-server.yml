@@ -82,6 +82,30 @@ jobs:
           done
           echo "===== finished (read-only) ====="
           REMOTE
+      - name: Compare prototype DNS to configured host (without disclosing IP)
+        env:
+          PROTO_HOST: ${{ secrets.PROTO_HOST }}
+        shell: bash
+        run: |
+          set +e
+          target_ips=$(getent ahostsv4 "$PROTO_HOST" | awk '{print $1}' | sort -u)
+          domain_ips=$(getent ahostsv4 proto.3cgroup.cn | awk '{print $1}' | sort -u)
+          if [[ -z "$domain_ips" ]]; then
+            echo "DNS_STATUS=unresolved"
+          elif [[ -z "$target_ips" ]]; then
+            echo "TARGET_STATUS=unresolved"
+          elif [[ -n "$(comm -12 <(printf '%s\n' "$target_ips") <(printf '%s\n' "$domain_ips"))" ]]; then
+            echo "DNS_POINTS_TO_PROTO_HOST=yes"
+          else
+            echo "DNS_POINTS_TO_PROTO_HOST=no"
+          fi
+          for port in 80 443; do
+            if timeout 5 bash -c "echo > /dev/tcp/proto.3cgroup.cn/$port" 2>/dev/null; then
+              echo "DOMAIN_PORT_${port}=reachable"
+            else
+              echo "DOMAIN_PORT_${port}=closed_or_filtered"
+            fi
+          done
       - name: Check public DNS and HTTP(S)
         shell: bash
         run: |
@@ -89,4 +113,4 @@ jobs:
           echo "===== public DNS ====="
           getent ahostsv4 proto.3cgroup.cn | head -n 3
           echo "===== public HTTPS response ====="
-          curl -sSIL --max-time 12 https://proto.3cgroup.cn/ | sed -n '1,15p'
+          curl -sSIL --max-time 12 https://proto.3cgroup.cn/ | sed -n '1,15p' || true
