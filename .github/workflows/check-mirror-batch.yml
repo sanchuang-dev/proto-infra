@@ -81,7 +81,7 @@ jobs:
           auth="$RUNNER_TEMP/test-proto-auth.env"
           touch "$auth"
           for key in PROTO_AI_MIRROR_HASH PROTO_BEAUTY_MIRROR_HASH PROTO_HAIR_MIRROR_HASH PROTO_FITTING_MIRROR_HASH; do
-            hash=$(printf 'dummy-demo-password-%s' "$key" | /usr/local/bin/caddy hash-password)
+            hash=$(printf 'dummy-demo-password-%s\n' "$key" | /usr/local/bin/caddy hash-password)
             printf "%s='%s'\n" "$key" "$hash" >> "$auth"
           done
           sudo chown root:root "$auth"
