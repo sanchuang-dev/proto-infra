@@ -1,5 +1,39 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>三创原型展示</title>
-<style>body{margin:0;background:#0c111b;color:#e9eef6;font:16px system-ui,-apple-system,"Segoe UI",sans-serif}main{max-width:940px;margin:0 auto;padding:12vh 24px}h1{font-size:clamp(32px,5vw,56px);letter-spacing:-.04em}p{color:#aab9ce}section{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:48px}a{display:block;text-decoration:none;color:inherit;border:1px solid #2d3c53;border-radius:14px;padding:26px;background:#141d2b}a:hover{border-color:#75a9ff}small{display:block;color:#aab9ce;margin-top:12px}</style>
-</head><body><main><p>3C / PROTOTYPES</p><h1>原型展示中心</h1><p>以下站点是产品原型，并非正式业务系统。</p><section><a href="https://local-life.proto.3cgroup.cn/">本地生活<small>Local Life</small></a><a href="https://ai-mirror.proto.3cgroup.cn/">见趣<small>AI Mirror</small></a><a href="https://college.proto.3cgroup.cn/">核心产业学院<small>Core Industry College</small></a></section></main></body></html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0d1520">
+<meta name="description" content="三创产品原型展示中心：闺蜜机与 AI 镜面系列，静态交互演示。">
+<title>三创 · 产品原型展示中心</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:radial-gradient(900px 500px at 85% -5%,#26364f 0%,transparent 75%),#0c1420;color:#edf3fa}
+main{max-width:1120px;margin:auto;padding:clamp(40px,8vw,92px) 24px}
+header{max-width:740px}.eyebrow{color:#8ca9c7;font-size:12px;font-weight:700;letter-spacing:.2em;text-transform:uppercase}
+h1{font-size:clamp(34px,5vw,62px);line-height:1.12;letter-spacing:-.05em;margin:18px 0}
+.subtitle{color:#b8c6d9;font-size:17px;line-height:1.9}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:17px;margin-top:46px}
+a.card{min-height:218px;display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;padding:28px;border-radius:19px;background:linear-gradient(145deg,#1a2a3d,#111e2e);border:1px solid #34465b;color:inherit;text-decoration:none;transition:transform .2s,border-color .2s}
+a.card:hover,a.card:focus-visible{border-color:#80afe0;transform:translateY(-3px);outline-offset:4px}
+.card-top{font-size:12px;color:#96b7da;letter-spacing:.08em}
+.card h2{font-size:26px;margin:12px 0 8px}
+.card p{color:#bbc9da;line-height:1.65;margin:0}
+.bottom{width:100%;margin-top:24px;display:flex;justify-content:space-between;color:#a0b0c5;font-size:13px}
+.note{margin-top:40px;color:#90a3b8;font-size:13px;line-height:1.85;border-top:1px solid #354459;padding-top:20px}
+@media(max-width:650px){.grid{grid-template-columns:1fr}a.card{min-height:190px;padding:23px}}
+</style>
+</head>
+<body><main>
+<header><div class="eyebrow">3C / PROTOTYPE SHOWCASE</div>
+<h1>产品原型展示中心</h1>
+<p class="subtitle">第一批 · 闺蜜机与 AI 镜面系列<br>点击进入独立产品演示。每个原型均在自己的域名下运行。</p></header>
+<section class="grid" aria-label="产品原型">
+<a class="card" href="https://ai-mirror.proto.3cgroup.cn/"><div><div class="card-top">AI COMPANION · 01</div><h2>见趣 · 闺蜜机</h2><p>个人陪伴、娱乐内容、AI 趣玩与本地生活的可点击体验。</p></div><div class="bottom"><span>原型演示</span><span>打开 ↗</span></div></a>
+<a class="card" href="https://beauty-mirror.proto.3cgroup.cn/"><div><div class="card-top">BEAUTY MIRROR · 02</div><h2>AI 美妆镜</h2><p>镜面灯光、模拟肌肤分析与妆容建议。</p></div><div class="bottom"><span>初步参考原型</span><span>打开 ↗</span></div></a>
+<a class="card" href="https://hair-mirror.proto.3cgroup.cn/"><div><div class="card-top">HAIR MIRROR · 03</div><h2>AI 美发魔镜</h2><p>沙龙镜面场景和发型体验交互演示。</p></div><div class="bottom"><span>初步参考原型</span><span>打开 ↗</span></div></a>
+<a class="card" href="https://fitting-mirror.proto.3cgroup.cn/"><div><div class="card-top">FITTING MIRROR · 04</div><h2>AI 试衣魔镜</h2><p>商场试衣镜场景、镜面互动与搭配展示。</p></div><div class="bottom"><span>初步参考原型</span><span>打开 ↗</span></div></a>
+</section>
+<p class="note">以上内容仅用于展示产品构想。示例数据、镜面识别、AI 生成、订单及设备控制等效果均不代表真实系统能力。未经产品、硬件或商业验收的功能不得作为交付承诺。</p>
+</main></body></html>
