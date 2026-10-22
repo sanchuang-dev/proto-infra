@@ -1,0 +1,7 @@
+# Managed by sanchuang-dev/proto-infra
+# Prototype portal. Application hosts are enabled only after their assets and DNS are ready.
+proto.3cgroup.cn {
+    root * /srv/proto/portal/current
+    encode zstd gzip
+    file_server
+}

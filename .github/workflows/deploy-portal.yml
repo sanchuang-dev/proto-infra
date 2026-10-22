@@ -1,0 +1,45 @@
+name: Deploy prototype portal
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proto-infra-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/prod'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check configuration
+        env:
+          PROTO_HOST: ${{ secrets.PROTO_HOST }}
+          PROTO_USER: ${{ secrets.PROTO_USER }}
+          PROTO_SSH_PORT: ${{ secrets.PROTO_SSH_PORT }}
+          PROTO_SSH_KEY: ${{ secrets.PROTO_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          for name in PROTO_HOST PROTO_USER PROTO_SSH_PORT PROTO_SSH_KEY; do
+            if [ -z "${!name:-}" ]; then echo "::error::Missing secret: $name"; exit 1; fi
+          done
+          [[ "$PROTO_SSH_PORT" =~ ^[0-9]+$ ]] || { echo "::error::Invalid SSH port"; exit 1; }
+      - name: Upload portal using SSH password
+        env:
+          PROTO_HOST: ${{ secrets.PROTO_HOST }}
+          PROTO_USER: ${{ secrets.PROTO_USER }}
+          PROTO_SSH_PORT: ${{ secrets.PROTO_SSH_PORT }}
+          SSHPASS: ${{ secrets.PROTO_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass rsync
+          install -d -m 700 "$HOME/.ssh"
+          sshpass -e rsync -az --no-perms --no-owner --no-group \
+            -e "ssh -p $PROTO_SSH_PORT -o PreferredAuthentications=password -o PubkeyAuthentication=no -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$HOME/.ssh/known_hosts" \
+            portal/ "$PROTO_USER@$PROTO_HOST:/srv/proto/portal/current/"
