@@ -40,6 +40,22 @@ jobs:
           grep -Fq '<title>三创 · 本地生活</title>' "$RUNNER_TEMP/local-life-check/index.html"
           ! grep -Fq '/local-life/assets/' "$RUNNER_TEMP/local-life-check/index.html"
 
+      - name: Confirm local-life DNS points to the prototype host
+        shell: bash
+        env:
+          PROTO_HOST: ${{ secrets.PROTO_HOST }}
+        run: |
+          set -euo pipefail
+          target_ips=$(getent ahostsv4 "$PROTO_HOST" | awk '{print $1}' | sort -u)
+          domain_ips=$(getent ahostsv4 local-life.proto.3cgroup.cn | awk '{print $1}' | sort -u)
+          [[ -n "$target_ips" ]] || { echo "::error::Prototype target cannot be resolved"; exit 1; }
+          [[ -n "$domain_ips" ]] || { echo "::error::local-life.proto.3cgroup.cn is not resolvable"; exit 1; }
+          [[ -n "$(comm -12 <(printf '%s\n' "$target_ips") <(printf '%s\n' "$domain_ips"))" ]] || {
+            echo "::error::local-life.proto.3cgroup.cn does not point to the configured prototype host"
+            exit 1
+          }
+          echo "LOCAL_LIFE_DNS_POINTS_TO_PROTO_HOST=yes"
+
       - name: Deploy release and Caddy host via existing SSH password secrets
         shell: bash
         env:
