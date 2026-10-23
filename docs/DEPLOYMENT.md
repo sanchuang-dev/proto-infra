@@ -31,7 +31,21 @@ The workflow uses OpenSSH `StrictHostKeyChecking=accept-new` so the first presen
 
 ## Releases
 
-A manually dispatched workflow from `prod` only synchronizes the infrastructure portal to `/srv/proto/portal/current`. It does not remotely overwrite the Caddyfile or product build outputs. Product repositories build and publish separately after acceptance. Do not interpret a workflow success alone as confirmation that the live site works.
+### Portal
+
+The portal publisher renders the canonical lab layout and synchronizes only `/srv/proto/portal/current/index.html`.
+
+### Local Life
+
+`local-life.proto.3cgroup.cn` is a static prototype hosted by Caddy from `/srv/proto/local-life/current`.
+
+- Source of truth for application code: `sanchuang-dev/local-life`.
+- Current pinned accepted source: `prod@075b50bef9864f368595412fe0feab93f2adcb7f`.
+- `scripts/prepare-local-life.sh` fetches that exact revision, runs lockfile install + lint + TypeScript + Vite build, and overrides the old GitHub Pages base with `/`.
+- `deploy-local-life.yml` is production-only. It creates a versioned release, atomically swaps `current`, installs the tracked Caddyfile, and rolls both back if validation/restart/local HTTPS smoke fails.
+- Public verification must confirm the actual hostname and at least one built asset. A successful branch merge or build alone is not a live-site acceptance result.
+
+Other product publishing remains owned by its documented workflow; do not use local-life's installer as a generic arbitrary-path deployment primitive.
 
 ## Safety
 
