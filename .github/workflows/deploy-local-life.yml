@@ -1,0 +1,84 @@
+name: Deploy local-life to company prototype server
+
+on:
+  push:
+    branches: [prod]
+    paths:
+      - Caddyfile
+      - scripts/prepare-local-life.sh
+      - scripts/install-local-life.sh
+      - .github/workflows/deploy-local-life.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proto-infra-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/prod'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build pinned local-life prod revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/prepare-local-life.sh "$RUNNER_TEMP/local-life"
+          test -s "$RUNNER_TEMP/local-life/local-life.tar.gz"
+          mkdir "$RUNNER_TEMP/local-life-check"
+          tar -xzf "$RUNNER_TEMP/local-life/local-life.tar.gz" -C "$RUNNER_TEMP/local-life-check"
+          test -s "$RUNNER_TEMP/local-life-check/index.html"
+          grep -Fq '<title>三创 · 本地生活</title>' "$RUNNER_TEMP/local-life-check/index.html"
+          ! grep -Fq '/local-life/assets/' "$RUNNER_TEMP/local-life-check/index.html"
+
+      - name: Deploy release and Caddy host via existing SSH password secrets
+        shell: bash
+        env:
+          PROTO_HOST: ${{ secrets.PROTO_HOST }}
+          PROTO_USER: ${{ secrets.PROTO_USER }}
+          PROTO_SSH_PORT: ${{ secrets.PROTO_SSH_PORT }}
+          SSHPASS: ${{ secrets.PROTO_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          for name in PROTO_HOST PROTO_USER PROTO_SSH_PORT SSHPASS; do
+            if [[ -z "${!name:-}" ]]; then echo "::error::Missing $name"; exit 1; fi
+          done
+          [[ "$PROTO_SSH_PORT" =~ ^[0-9]+$ ]] || exit 1
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          install -d -m 0700 "$RUNNER_TEMP/ssh"
+          ssh-keyscan -T 10 -p "$PROTO_SSH_PORT" -t ed25519 "$PROTO_HOST" 2>/dev/null > "$RUNNER_TEMP/ssh/known_hosts"
+          test -s "$RUNNER_TEMP/ssh/known_hosts"
+          actual=$(ssh-keygen -lf "$RUNNER_TEMP/ssh/known_hosts" -E sha256 | awk 'NR==1{print $2}')
+          [[ "$actual" == 'SHA256:wRPdG4mucUA07fKN1V/Fes+r38VK0zYWXZ4BYm/6Niw' ]] || { echo "::error::SSH host identity mismatch"; exit 1; }
+          ssh_opts=(-o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=20)
+          host="$PROTO_USER@$PROTO_HOST"
+          stage=$(sshpass -e ssh -T -p "$PROTO_SSH_PORT" "${ssh_opts[@]}" "$host" 'mktemp -d /tmp/proto-local-life.XXXXXX')
+          [[ "$stage" =~ ^/tmp/proto-local-life\.[A-Za-z0-9]+$ ]] || { echo "::error::Invalid stage directory"; exit 1; }
+          sshpass -e scp -q -P "$PROTO_SSH_PORT" "${ssh_opts[@]}" \
+            "$RUNNER_TEMP/local-life/local-life.tar.gz" Caddyfile scripts/install-local-life.sh \
+            "$host:$stage/"
+          sshpass -e ssh -T -p "$PROTO_SSH_PORT" "${ssh_opts[@]}" "$host" \
+            "chmod 0755 '$stage/install-local-life.sh' && bash '$stage/install-local-life.sh' '$stage'"
+
+      - name: Verify public HTTPS and built assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          url=https://local-life.proto.3cgroup.cn/
+          curl -fsSL --retry 6 --retry-delay 3 --retry-all-errors --max-time 25 "$url" -o "$RUNNER_TEMP/live.html"
+          grep -Fq '<title>三创 · 本地生活</title>' "$RUNNER_TEMP/live.html"
+          asset=$(grep -oE '(src|href)="/assets/[^"]+' "$RUNNER_TEMP/live.html" | head -n1 | cut -d'"' -f2)
+          test -n "$asset"
+          curl -fsS --retry 4 --retry-delay 2 --max-time 25 "https://local-life.proto.3cgroup.cn$asset" -o /dev/null
+          echo "LOCAL_LIFE_PUBLIC_HTTPS=200"
+          echo "LOCAL_LIFE_ASSET=200"

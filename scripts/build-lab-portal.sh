@@ -31,7 +31,7 @@ links = {
     'href="https://sanchuang-dev.github.io/ai-fitting-mirror/"': 'href="https://fitting-mirror.proto.3cgroup.cn/"',
     # Lingnan remains hosted at lab, not on proto: never emit a broken local route.
     'href="./lingnan/"': 'href="https://lab.3cgroup.cn/lingnan/"',
-    'location.replace("./local-life/" + location.hash);': 'location.replace("https://lab.3cgroup.cn/local-life/" + location.hash);',
+    'location.replace("./local-life/" + location.hash);': 'location.replace("https://local-life.proto.3cgroup.cn/" + location.hash);',
 }
 for old, new in links.items():
     if html.count(old) != 1:
@@ -56,7 +56,7 @@ if (html.count('class="project ') != 6 or
         "<!--DEMO_CARDS-->" in html or
         "<!--DEMO_COUNT-->" in html):
     raise SystemExit("Unexpected upstream portal structure")
-for expected in ['ai-mirror', 'beauty-mirror', 'hair-mirror', 'fitting-mirror']:
+for expected in ['local-life', 'ai-mirror', 'beauty-mirror', 'hair-mirror', 'fitting-mirror']:
     if f'https://{expected}.proto.3cgroup.cn/' not in html:
         raise SystemExit(f"Missing local host: {expected}")
 dst.write_text(html, encoding="utf-8")
