@@ -2,7 +2,7 @@
 # Build the accepted local-life prod revision for the root of its dedicated proto hostname.
 set -euo pipefail
 out="${1:?expected output directory}"
-source_rev=075b50bef9864f368595412fe0feab93f2adcb7f
+source_rev=72de73a858461c87693127bedfa9117ac33a02d1
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
