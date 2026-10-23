@@ -1,0 +1,51 @@
+name: Check local-life company-server release
+
+on:
+  pull_request:
+    branches: [dev, test, prod]
+    paths:
+      - Caddyfile
+      - scripts/prepare-local-life.sh
+      - scripts/install-local-life.sh
+      - scripts/build-lab-portal.sh
+      - .github/workflows/check-local-life.yml
+      - .github/workflows/deploy-local-life.yml
+      - docs/DEPLOYMENT.md
+      - README.md
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build pinned local-life release
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/prepare-local-life.sh "$RUNNER_TEMP/local-life"
+          mkdir "$RUNNER_TEMP/unpacked"
+          tar -xzf "$RUNNER_TEMP/local-life/local-life.tar.gz" -C "$RUNNER_TEMP/unpacked"
+          test -s "$RUNNER_TEMP/unpacked/index.html"
+          grep -Fq '<title>三创 · 本地生活</title>' "$RUNNER_TEMP/unpacked/index.html"
+          ! grep -Fq '/local-life/assets/' "$RUNNER_TEMP/unpacked/index.html"
+          grep -Eq '(src|href)="/assets/' "$RUNNER_TEMP/unpacked/index.html"
+
+      - name: Verify portal target and bounded Caddy host
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/build-lab-portal.sh "$RUNNER_TEMP/portal"
+          grep -Fq 'https://local-life.proto.3cgroup.cn/' "$RUNNER_TEMP/portal/index.html"
+          test "$(grep -c '^local-life.proto.3cgroup.cn {' Caddyfile)" -eq 1
+          grep -Fq 'root * /srv/proto/local-life/current' Caddyfile
+          grep -Fq 'try_files {path} /index.html' Caddyfile
+          bash -n scripts/prepare-local-life.sh
+          bash -n scripts/install-local-life.sh
