@@ -38,6 +38,17 @@ jobs:
           echo "CADDY_ACTIVE=$(systemctl is-active caddy)"
           echo "LOCAL_LIFE_LIVE_BLOCK=$(grep -c '^local-life\.proto\.3cgroup\.cn {' /etc/caddy/Caddyfile || true)"
           echo "LOCAL_LIFE_CURRENT=$(test -L /srv/proto/local-life/current && echo symlink || echo absent_or_non_symlink)"
+          echo "===== live proto host block ====="
+          sed -n '/^proto\.3cgroup\.cn {/,/^}/p' /etc/caddy/Caddyfile
+          echo "===== outbound CA reachability ====="
+          for spec in \
+            "letsencrypt|https://acme-v02.api.letsencrypt.org/directory" \
+            "zerossl|https://acme.zerossl.com/v2/DV90"; do
+            name=${spec%%|*}
+            url=${spec#*|}
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 12 "$url" || true)
+            echo "CA_${name}=${code:-unreachable}"
+          done
           echo "===== bounded TLS diagnostics ====="
           journalctl -u caddy --since '20 minutes ago' --no-pager 2>/dev/null |
             grep -E 'local-life\.proto\.3cgroup\.cn|obtaining certificate|certificate.*(fail|error)|acme|tls\.obtain|tls\.issuance' |
