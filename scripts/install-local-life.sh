@@ -78,7 +78,10 @@ systemctl restart caddy
 systemctl is-active --quiet caddy
 /usr/local/bin/caddy validate --config /etc/caddy/Caddyfile >/dev/null
 
-code=$(curl -sS -o "$stage/local-life.html" -w '%{http_code}' --max-time 20 \
+# A new hostname may need a few seconds for Caddy's ACME certificate issuance.
+# Retry TLS/HTTP failures for a bounded window; persistent failure still triggers rollback.
+code=$(curl -sS -o "$stage/local-life.html" -w '%{http_code}' \
+  --retry 10 --retry-delay 3 --retry-all-errors --connect-timeout 8 --max-time 20 \
   --resolve local-life.proto.3cgroup.cn:443:127.0.0.1 https://local-life.proto.3cgroup.cn/)
 [[ "$code" == 200 ]] || { echo "LOCAL_LIFE_LOCAL_SMOKE=$code" >&2; false; }
 grep -Fq '<title>三创 · 本地生活</title>' "$stage/local-life.html"
