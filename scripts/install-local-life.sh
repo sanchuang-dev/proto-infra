@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install one versioned local-life static release and the tracked Caddy host safely.
+# Install one versioned local-life static release and patch only its Caddy host.
 set -euo pipefail
 stage="${1:?expected stage directory}"
 [[ "$stage" =~ ^/tmp/proto-local-life\.[A-Za-z0-9]+$ ]] || exit 1
@@ -9,14 +9,37 @@ grep -Fq 'Managed by sanchuang-dev/proto-infra' /etc/caddy/Caddyfile
 
 test -s "$stage/local-life.tar.gz"
 test -s "$stage/Caddyfile"
-test -x /usr/local/share/proto/validate-proto-auth.sh
 if [[ -e /srv/proto/local-life/current && ! -L /srv/proto/local-life/current ]]; then
   echo "Refusing to overwrite non-symlink local-life/current" >&2
   exit 1
 fi
 
-# Validate the candidate with the existing protected-site runtime hashes before mutation.
-bash /usr/local/share/proto/validate-proto-auth.sh /etc/caddy/proto-auth.env "$stage/Caddyfile"
+# The repository contains staged Caddy changes for other prototype hosts that may
+# not yet be live. Never replace the whole live Caddyfile from this product release.
+# Extract only the simple local-life host block owned by OPS-007.
+test "$(grep -c '^local-life\.proto\.3cgroup\.cn {' "$stage/Caddyfile")" -eq 1
+awk '
+  /^local-life\.proto\.3cgroup\.cn \{$/ { capture=1 }
+  capture { print }
+  capture && /^}$/ { exit }
+' "$stage/Caddyfile" > "$stage/local-life.caddy"
+test -s "$stage/local-life.caddy"
+grep -Fxq '    root * /srv/proto/local-life/current' "$stage/local-life.caddy"
+grep -Fxq '    try_files {path} /index.html' "$stage/local-life.caddy"
+
+# Preserve the exact currently-running config, replacing only a prior local-life
+# block if this workflow is safely re-run.
+awk '
+  /^local-life\.proto\.3cgroup\.cn \{$/ { skip=1; next }
+  skip && /^}$/ { skip=0; next }
+  !skip { print }
+' /etc/caddy/Caddyfile > "$stage/Caddyfile.base"
+cp "$stage/Caddyfile.base" "$stage/Caddyfile.candidate"
+printf '\n' >> "$stage/Caddyfile.candidate"
+cat "$stage/local-life.caddy" >> "$stage/Caddyfile.candidate"
+
+/usr/local/bin/caddy validate --config /etc/caddy/Caddyfile >/dev/null
+/usr/local/bin/caddy validate --config "$stage/Caddyfile.candidate" >/dev/null
 
 cp -p /etc/caddy/Caddyfile "$stage/caddy.prev"
 readlink /srv/proto/local-life/current > "$stage/previous-local-life" || :
@@ -50,10 +73,10 @@ fi
 test ! -e /srv/proto/local-life/current.next
 ln -s "$dest" /srv/proto/local-life/current.next
 mv -Tf /srv/proto/local-life/current.next /srv/proto/local-life/current
-install -m 0644 "$stage/Caddyfile" /etc/caddy/Caddyfile
+install -m 0644 "$stage/Caddyfile.candidate" /etc/caddy/Caddyfile
 systemctl restart caddy
 systemctl is-active --quiet caddy
-bash /usr/local/share/proto/validate-proto-auth.sh /etc/caddy/proto-auth.env /etc/caddy/Caddyfile
+/usr/local/bin/caddy validate --config /etc/caddy/Caddyfile >/dev/null
 
 code=$(curl -sS -o "$stage/local-life.html" -w '%{http_code}' --max-time 20 \
   --resolve local-life.proto.3cgroup.cn:443:127.0.0.1 https://local-life.proto.3cgroup.cn/)
