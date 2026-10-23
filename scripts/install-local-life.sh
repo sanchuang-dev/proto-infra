@@ -79,12 +79,23 @@ systemctl is-active --quiet caddy
 /usr/local/bin/caddy validate --config /etc/caddy/Caddyfile >/dev/null
 
 # A new hostname may need a few seconds for Caddy's ACME certificate issuance.
-# Retry TLS/HTTP failures for a bounded window; persistent failure still triggers rollback.
-code=$(curl -sS -o "$stage/local-life.html" -w '%{http_code}' \
-  --retry 10 --retry-delay 3 --retry-all-errors --connect-timeout 8 --max-time 20 \
-  --resolve local-life.proto.3cgroup.cn:443:127.0.0.1 https://local-life.proto.3cgroup.cn/)
-[[ "$code" == 200 ]] || { echo "LOCAL_LIFE_LOCAL_SMOKE=$code" >&2; false; }
-grep -Fq '<title>三创 · 本地生活</title>' "$stage/local-life.html"
+# The prototype host has an older curl without --retry-all-errors, so retry
+# explicitly instead of changing the server package set during a product deploy.
+ready=0
+code=""
+for attempt in $(seq 1 10); do
+  if code=$(curl -sS -o "$stage/local-life.html" -w '%{http_code}' \
+      --connect-timeout 8 --max-time 20 \
+      --resolve local-life.proto.3cgroup.cn:443:127.0.0.1 https://local-life.proto.3cgroup.cn/); then
+    if [[ "$code" == 200 ]] && grep -Fq '<title>三创 · 本地生活</title>' "$stage/local-life.html"; then
+      ready=1
+      break
+    fi
+  fi
+  echo "LOCAL_LIFE_TLS_WAIT=$attempt"
+  sleep 3
+done
+[[ "$ready" == 1 ]] || { echo "LOCAL_LIFE_LOCAL_SMOKE=${code:-curl_failed}" >&2; false; }
 echo "LOCAL_LIFE_DEPLOYED=$tag"
 trap - ERR
 rm -rf -- "$stage"
