@@ -1,0 +1,45 @@
+name: Inspect local-life TLS failure (read only)
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - .github/workflows/inspect-local-life-tls.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Read bounded Caddy TLS diagnostics
+        env:
+          PROTO_HOST: ${{ secrets.PROTO_HOST }}
+          PROTO_USER: ${{ secrets.PROTO_USER }}
+          PROTO_SSH_PORT: ${{ secrets.PROTO_SSH_PORT }}
+          SSHPASS: ${{ secrets.PROTO_SSH_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in PROTO_HOST PROTO_USER PROTO_SSH_PORT SSHPASS; do
+            [[ -n "${!name:-}" ]] || { echo "::error::Missing $name"; exit 1; }
+          done
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          install -d -m 0700 "$RUNNER_TEMP/ssh"
+          ssh-keyscan -T 10 -p "$PROTO_SSH_PORT" -t ed25519 "$PROTO_HOST" 2>/dev/null > "$RUNNER_TEMP/ssh/known_hosts"
+          actual=$(ssh-keygen -lf "$RUNNER_TEMP/ssh/known_hosts" -E sha256 | awk 'NR==1{print $2}')
+          [[ "$actual" == 'SHA256:wRPdG4mucUA07fKN1V/Fes+r38VK0zYWXZ4BYm/6Niw' ]] || exit 1
+          ssh_opts=(-o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=20)
+          sshpass -e ssh -T -p "$PROTO_SSH_PORT" "${ssh_opts[@]}" "$PROTO_USER@$PROTO_HOST" 'sh -s' <<'REMOTE'
+          set -eu
+          echo "CADDY_ACTIVE=$(systemctl is-active caddy)"
+          echo "LOCAL_LIFE_LIVE_BLOCK=$(grep -c '^local-life\.proto\.3cgroup\.cn {' /etc/caddy/Caddyfile || true)"
+          echo "LOCAL_LIFE_CURRENT=$(test -L /srv/proto/local-life/current && echo symlink || echo absent_or_non_symlink)"
+          echo "===== bounded TLS diagnostics ====="
+          journalctl -u caddy --since '20 minutes ago' --no-pager 2>/dev/null |
+            grep -E 'local-life\.proto\.3cgroup\.cn|obtaining certificate|certificate.*(fail|error)|acme|tls\.obtain|tls\.issuance' |
+            tail -n 120 || true
+          REMOTE
