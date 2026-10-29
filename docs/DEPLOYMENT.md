@@ -40,7 +40,7 @@ The portal publisher renders the canonical lab layout and synchronizes only `/sr
 `local-life.proto.3cgroup.cn` is a static prototype hosted by Caddy from `/srv/proto/local-life/current`.
 
 - Source of truth for application code: `sanchuang-dev/local-life`.
-- Current pinned accepted source: `prod@a5b1594691afd0f9dba3bb0fb239565ff7d6c02b`.
+- Current pinned accepted source: `prod@d907981809484ab4250dca0e2153407f255dfbfc`.
 - `scripts/prepare-local-life.sh` fetches that exact revision, runs lockfile install + lint + TypeScript + Vite build, and overrides the old GitHub Pages base with `/`.
 - `deploy-local-life.yml` is production-only. It creates a versioned release and atomically swaps `current`. Because the repository also contains staged Caddy changes for other prototype hosts that are not necessarily live, the installer preserves the server's currently validated Caddyfile and replaces only the tracked `local-life.proto.3cgroup.cn` block; validation/restart/local HTTPS failure rolls both Caddy and `current` back.
 - Public verification must confirm the actual hostname and at least one built asset. A successful branch merge or build alone is not a live-site acceptance result.
