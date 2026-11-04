@@ -1,0 +1,29 @@
+# Local Life online MVP: independent H5/Admin origins, one private Hono API.
+# Installed as an exact bounded addition; do not edit existing prototype hosts.
+local.proto.3cgroup.cn {
+    encode zstd gzip
+    header X-Robots-Tag "noindex, nofollow"
+
+    handle_path /api/* {
+        reverse_proxy 127.0.0.1:18081
+    }
+    handle {
+        root * /srv/proto/local-life-mvp/web/current
+        try_files {path} /index.html
+        file_server
+    }
+}
+
+local-admin.proto.3cgroup.cn {
+    encode zstd gzip
+    header X-Robots-Tag "noindex, nofollow"
+
+    handle_path /api/* {
+        reverse_proxy 127.0.0.1:18081
+    }
+    handle {
+        root * /srv/proto/local-life-mvp/admin/current
+        try_files {path} /index.html
+        file_server
+    }
+}
