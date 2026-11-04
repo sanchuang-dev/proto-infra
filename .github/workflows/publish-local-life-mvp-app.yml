@@ -1,0 +1,22 @@
+# Default-branch registration stub: NEVER DEPLOY FROM main.
+# GitHub workflow_dispatch registration requires this file on main.
+name: Publish Local Life MVP app (controlled)
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish the current protected local-life/mvp commit'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  registration-only:
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'Registration only; real deployment requires proto-infra/prod'
