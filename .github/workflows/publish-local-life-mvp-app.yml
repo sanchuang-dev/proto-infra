@@ -37,6 +37,23 @@ jobs:
           grep -Fq 'base=/srv/proto/local-life-mvp' scripts/install-local-life-mvp-app.sh
           grep -Fq -- '-p 127.0.0.1:18081:4080' scripts/install-local-life-mvp-app.sh
           grep -Fq "AUTH_DEV_ENABLED=false" scripts/install-local-life-mvp-app.sh
+          grep -Fq 'chmod -R a+rX' scripts/install-local-life-mvp-app.sh
+          grep -Fq 'MVP_STATIC_READABLE_BY_CADDY=yes' scripts/install-local-life-mvp-app.sh
+          grep -Fq 'test -z "$(read_old)"' scripts/install-local-life-mvp-app.sh
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          mkdir -p "$tmp/source/assets" "$tmp/out"
+          printf '<html>ok</html>\n' > "$tmp/source/index.html"
+          printf 'asset\n' > "$tmp/source/assets/app.js"
+          chmod 0644 "$tmp/source/index.html" "$tmp/source/assets/app.js"
+          chmod 0755 "$tmp/source" "$tmp/source/assets"
+          tar -C "$tmp/source" -czf "$tmp/site.tar.gz" .
+          (umask 077; tar -xzf "$tmp/site.tar.gz" --no-same-owner --no-same-permissions -C "$tmp/out")
+          test "$(stat -c '%a' "$tmp/out/index.html")" = 600
+          chmod -R a+rX "$tmp/out"
+          test "$(stat -c '%a' "$tmp/out/index.html")" = 644
+          test "$(stat -c '%a' "$tmp/out/assets")" = 755
+          echo 'MVP_STATIC_PERMISSION_NORMALIZATION_TEST=PASS'
 
   package:
     needs: validate
@@ -167,7 +184,11 @@ jobs:
           rollback() {
             if test "$applied" = 1; then
               echo "::warning::Release verification failed; requesting bounded rollback"
-              remote "bash '$stage/install-local-life-mvp-app.sh' rollback '$stage' '$SOURCE_SHA'" || echo "::error::Rollback needs operator review"
+              if remote "bash '$stage/install-local-life-mvp-app.sh' rollback '$stage' '$SOURCE_SHA'"; then
+                remote "rm -rf -- '$stage'" || echo "::warning::Temporary staging cleanup failed"
+              else
+                echo "::error::Rollback needs operator review; staging retained at $stage"
+              fi
             fi
           }
           trap rollback EXIT
@@ -177,13 +198,19 @@ jobs:
           applied=1
           remote "bash '$stage/install-local-life-mvp-app.sh' apply '$stage' '$SOURCE_SHA'"
           for host in local.proto.3cgroup.cn local-admin.proto.3cgroup.cn; do
+            echo "MVP_PUBLIC_HEALTH_CHECK_BEGIN=$host"
             curl -fsS --connect-timeout 8 --max-time 20 "https://$host/api/healthz" > "$RUNNER_TEMP/health.json"
             grep -Fq '"service":"local-life-api"' "$RUNNER_TEMP/health.json"
+            echo "MVP_PUBLIC_HEALTH_CHECK_PASS=$host"
+            echo "MVP_PUBLIC_INDEX_CHECK_BEGIN=$host"
             curl -fsS --connect-timeout 8 --max-time 20 "https://$host/" -o "$RUNNER_TEMP/$host.html"
             grep -Eq '(src|href)="/assets/' "$RUNNER_TEMP/$host.html"
+            echo "MVP_PUBLIC_INDEX_CHECK_PASS=$host"
             asset="$(grep -oE '(src|href)="/assets/[^"]+' "$RUNNER_TEMP/$host.html" | head -n1 | cut -d'"' -f2)"
             test -n "$asset"
+            echo "MVP_PUBLIC_ASSET_CHECK_BEGIN=$host"
             curl -fsS --connect-timeout 8 --max-time 20 "https://$host$asset" -o /dev/null
+            echo "MVP_PUBLIC_ASSET_CHECK_PASS=$host"
             status="$(curl -s -o /dev/null -w '%{http_code}' "https://$host/api/admin/communities")"
             test "$status" = 401
             echo "MVP_HTTPS_HEALTH_ASSETS_AND_AUTH_PASS=$host"

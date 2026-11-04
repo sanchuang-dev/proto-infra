@@ -18,16 +18,17 @@ This is the trusted deployment executor for reviewed application artifacts from 
 - One container `local-life-mvp-api` publishes only `127.0.0.1:18081`, internal port 4080.
 - SQLite persists in `/srv/proto/local-life-mvp/data/local-life.sqlite` with restricted root-owned backups; config in `/srv/proto/local-life-mvp/config/api.env`.
 - Container is non-root uid 1000 with read-only rootfs, no capabilities, fixed CPU/memory/pid/log bounds.
+- Static artifacts are normalized to Caddy-readable directory/file modes after extraction, independent of the SSH user's umask; the installer verifies the Caddy service account can traverse and read both entrypoints before switching.
 - Fresh config is generated only if missing. `NODE_ENV=production`, `AUTH_DEV_ENABLED=false`, exact two trusted origins, **no shared COOKIE_DOMAIN**. CRMEB/WeChat credentials stay absent until separately authorized and configured directly through secure server-side means.
 
 ## Release gates
 
 1. A reviewed `dev → mvp` PR must be merged. Build from the exact latest protected `mvp` commit, not an arbitrary source SHA.
 2. CI packages immutable two static sites + Linux API image on GitHub-hosted runner. No production secret is present during checkout/build.
-3. On the host, reject unexpected Caddy sites/current directory shapes; perform native SQLite WAL-aware online backup; verify `PRAGMA quick_check`.
+3. On the host, reject unexpected Caddy sites/current directory shapes; normalize public file permissions regardless of remote umask and verify Caddy can read both roots; perform native SQLite WAL-aware online backup; verify `PRAGMA quick_check`.
 4. Test the candidate image migrations on a *backup copy* with the container's native driver; then stop the previous writer, start exactly one new writer and verify genuine HTTP health and authentication rejections.
 5. Switch both static `current` pointers only after API is healthy. Check both public origins' HTTPS, actual `/api/healthz`, their static assets, unauthenticated protected path, and existing old Local Life/Benefit/portal sites.
-6. Finalize the SHA only after checks; first deployment writes and validates a seed SQLite backup.
+6. Finalize the SHA only after checks; first deployment writes and validates a seed SQLite backup, including retries after an app rollback.
 7. Failure requests a bounded rollback. Revert static pointers; restart the previous API only if the migration count has not changed, otherwise fail closed without reverting or overwriting actual SQLite data. Never restore old DB unconditionally.
 
 ## Limits
