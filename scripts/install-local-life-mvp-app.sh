@@ -128,6 +128,20 @@ ENV
         test -s "$tmp/admin/index.html"
         mv "$tmp" "$release"
     fi
+    # A remote root shell may have umask 077; Caddy must still read public assets.
+    test -s "$release/web/index.html"
+    test -s "$release/admin/index.html"
+    chmod 0755 "$release" "$release/web" "$release/admin"
+    chmod -R a+rX "$release/web" "$release/admin"
+    caddy_user="$(systemctl show -p User --value caddy 2>/dev/null || true)"
+    if test -n "$caddy_user"; then
+        command -v runuser >/dev/null
+        runuser -u "$caddy_user" -- test -x "$release/web"
+        runuser -u "$caddy_user" -- test -r "$release/web/index.html"
+        runuser -u "$caddy_user" -- test -x "$release/admin"
+        runuser -u "$caddy_user" -- test -r "$release/admin/index.html"
+    fi
+    echo 'MVP_STATIC_READABLE_BY_CADDY=yes'
     old="$(cat "$base/current.sha" 2>/dev/null || true)"
     if test -n "$old"; then [[ "$old" =~ ^[0-9a-f]{40}$ ]] || exit 1; fi
     printf '%s\n' "$old" > "$stage/old-sha"
@@ -200,11 +214,13 @@ ENV
     test -f "$stage/applied"
     test "$(cat "$base/current.sha")" = "$sha"
     test "$(sqlite3 "$db" 'PRAGMA quick_check;')" = ok
-    if test ! -f "$stage/old-sha" || test ! -s "$stage/old-sha"; then
-        # First deploy: keep a verified seed backup after schema migration.
+    if test -z "$(read_old)"; then
+        # First deploy (including a retry after app rollback): keep a verified seed backup.
         seed="$base/backups/initial-$sha.sqlite"
-        sqlite3 "$db" ".backup '$seed'"
-        chmod 0600 "$seed"
+        if ! test -s "$seed"; then
+            sqlite3 "$db" ".backup '$seed'"
+            chmod 0600 "$seed"
+        fi
         test "$(sqlite3 "$seed" 'PRAGMA quick_check;')" = ok
         echo MVP_SEED_BACKUP_VERIFIED=yes
     fi
