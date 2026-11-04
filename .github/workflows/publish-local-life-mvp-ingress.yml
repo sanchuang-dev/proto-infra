@@ -98,7 +98,9 @@ jobs:
           remote "bash '$stage/install-local-life-mvp-ingress.sh' apply '$stage'"
           for host in local.proto.3cgroup.cn local-admin.proto.3cgroup.cn; do
             ok=0
-            for attempt in $(seq 1 16); do
+            # ACME can fail secondary DNS validation and switch from HTTP-01 to TLS-ALPN-01.
+            # Allow up to roughly four minutes for the first certificate before rolling back.
+            for attempt in $(seq 1 48); do
               code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 6 --max-time 12 "https://$host/" 2>/dev/null)" || code=''
               if test "$code" = 404; then ok=1; break; fi
               sleep 5
