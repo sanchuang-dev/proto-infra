@@ -33,6 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           bash -n scripts/install-local-life-mvp-ingress.sh
+          docker run --rm -v "$PWD/ops/local-life-mvp.caddy:/etc/caddy/Caddyfile:ro" caddy:2.10 caddy validate --config /etc/caddy/Caddyfile
           test "$(grep -Fc 'local.proto.3cgroup.cn {' ops/local-life-mvp.caddy)" -eq 1
           test "$(grep -Fc 'local-admin.proto.3cgroup.cn {' ops/local-life-mvp.caddy)" -eq 1
           test "$(grep -Fc 'reverse_proxy 127.0.0.1:18081' ops/local-life-mvp.caddy)" -eq 2
