@@ -56,4 +56,18 @@ for dir in /srv/proto/local-life-mvp /srv/proto/local-life-mvp/data /srv/proto/l
     printf 'MVP_DIR_%s=absent\n' "${dir##*/}"
   fi
 done
+
+# Only certificate events for the two authorized MVP domains, limited to recent Caddy logs.
+# Redact known credential-like JSON fields and avoid exposing unrelated site requests.
+if command -v journalctl >/dev/null 2>&1; then
+  printf 'MVP_CADDY_TLS_EVENTS_BEGIN\n'
+  journalctl -u caddy --since '45 minutes ago' --no-pager -o cat 2>/dev/null |
+    grep -E 'local\.proto\.3cgroup\.cn|local-admin\.proto\.3cgroup\.cn' |
+    grep -Ei 'tls|cert|acme|challenge|issu|error|fail|authorization' |
+    tail -n 35 |
+    sed -E 's/"(account|email|secret|token|authorization|password|key)":"[^"]*"/"\1":"REDACTED"/g' |
+    cut -c 1-1000 || true
+  printf 'MVP_CADDY_TLS_EVENTS_END\n'
+fi
+
 printf 'LOCAL_LIFE_MVP_PREFLIGHT=COMPLETE\n'
