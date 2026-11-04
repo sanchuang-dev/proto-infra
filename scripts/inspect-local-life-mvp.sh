@@ -38,7 +38,7 @@ if test -r /etc/caddy/Caddyfile; then
   printf 'CADDYFILE_READABLE=yes\n'
   sha256sum /etc/caddy/Caddyfile | awk '{printf "CADDYFILE_SHA256=%s\n", $1}'
   for host in proto.3cgroup.cn local-life.proto.3cgroup.cn benefit.proto.3cgroup.cn local.proto.3cgroup.cn local-admin.proto.3cgroup.cn; do
-    if grep -Eq "^${host//./\\.}[[:space:]]*\\{" /etc/caddy/Caddyfile; then
+    if grep -Fqx "$host {" /etc/caddy/Caddyfile; then
       printf 'CADDY_SITE_%s=declared\n' "$host"
     else
       printf 'CADDY_SITE_%s=absent\n' "$host"
