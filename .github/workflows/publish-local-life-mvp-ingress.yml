@@ -1,0 +1,115 @@
+# One-time, explicitly dispatched production ingress. Never deploy on PR or prod push.
+name: Publish Local Life MVP ingress (controlled)
+
+on:
+  pull_request:
+    branches: [dev, test, prod]
+    paths:
+      - ops/local-life-mvp.caddy
+      - scripts/install-local-life-mvp-ingress.sh
+      - .github/workflows/publish-local-life-mvp-ingress.yml
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'I authorize only the bounded Local Life MVP ingress and directories'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proto-infra-production
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate bounded release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/install-local-life-mvp-ingress.sh
+          test "$(grep -Fc 'local.proto.3cgroup.cn {' ops/local-life-mvp.caddy)" -eq 1
+          test "$(grep -Fc 'local-admin.proto.3cgroup.cn {' ops/local-life-mvp.caddy)" -eq 1
+          test "$(grep -Fc 'reverse_proxy 127.0.0.1:18081' ops/local-life-mvp.caddy)" -eq 2
+          ! grep -Eq '^(proto|local-life|benefit)\.3cgroup\.cn \{' ops/local-life-mvp.caddy
+
+  publish:
+    needs: validate
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'sanchuang-dev/proto-infra' && github.ref == 'refs/heads/prod' && inputs.publish == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify existing HTTPS entrypoints before change
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --connect-timeout 8 --max-time 20 https://local-life.proto.3cgroup.cn/ -o /dev/null
+          curl -fsSL --connect-timeout 8 --max-time 20 https://benefit.proto.3cgroup.cn/healthz -o /dev/null
+          curl -fsSL --connect-timeout 8 --max-time 20 https://proto.3cgroup.cn/ -o /dev/null
+      - name: Install SSH client on ephemeral runner
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends sshpass >/dev/null
+      - name: Apply site-only change with host verification and rollback
+        shell: bash
+        env:
+          PROTO_HOST: ${{ secrets.PROTO_HOST }}
+          PROTO_USER: ${{ secrets.PROTO_USER }}
+          PROTO_SSH_PORT: ${{ secrets.PROTO_SSH_PORT }}
+          SSHPASS: ${{ secrets.PROTO_SSH_KEY }}
+        run: |
+          set -Eeuo pipefail
+          for key in PROTO_HOST PROTO_USER PROTO_SSH_PORT SSHPASS; do
+            test -n "${!key:-}" || { echo "::error::Missing $key"; exit 1; }
+          done
+          case "$PROTO_HOST" in 8.148.148.135|proto.3cgroup.cn) ;; *) echo "::error::Unapproved target"; exit 1 ;; esac
+          [[ "$PROTO_SSH_PORT" =~ ^[0-9]+$ ]] || exit 1
+          test "$(getent ahostsv4 proto.3cgroup.cn | awk 'NR==1 {print $1}')" = "8.148.148.135"
+          install -d -m 0700 "$RUNNER_TEMP/ssh"
+          ssh-keyscan -T 10 -p "$PROTO_SSH_PORT" -t ed25519 "$PROTO_HOST" 2>/dev/null > "$RUNNER_TEMP/ssh/known_hosts"
+          test -s "$RUNNER_TEMP/ssh/known_hosts"
+          fingerprint="$(ssh-keygen -lf "$RUNNER_TEMP/ssh/known_hosts" -E sha256 | awk 'NR==1 {print $2}')"
+          test "$fingerprint" = "SHA256:wRPdG4mucUA07fKN1V/Fes+r38VK0zYWXZ4BYm/6Niw" || {
+            echo "::error::Target SSH host identity changed"; exit 1;
+          }
+          ssh_opts=(-o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=12 -p "$PROTO_SSH_PORT")
+          scp_opts=(-o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=12 -P "$PROTO_SSH_PORT")
+          remote() { sshpass -e ssh -T "${ssh_opts[@]}" "$PROTO_USER@$PROTO_HOST" "$@"; }
+          stage="$(remote 'mktemp -d /tmp/local-life-mvp-ingress.XXXXXX')"
+          [[ "$stage" =~ ^/tmp/local-life-mvp-ingress\.[A-Za-z0-9]+$ ]] || exit 1
+          applied=0
+          rollback() {
+            if test "$applied" = 1; then
+              echo "::warning::Verification failed, rolling back only Local Life MVP Caddy addition"
+              remote "bash '$stage/install-local-life-mvp-ingress.sh' rollback '$stage'" || echo "::error::Rollback failed; operator intervention required"
+            fi
+          }
+          trap rollback ERR
+          sshpass -e scp -q "${scp_opts[@]}" ops/local-life-mvp.caddy scripts/install-local-life-mvp-ingress.sh "$PROTO_USER@$PROTO_HOST:$stage/"
+          applied=1
+          remote "bash '$stage/install-local-life-mvp-ingress.sh' apply '$stage'"
+          for host in local.proto.3cgroup.cn local-admin.proto.3cgroup.cn; do
+            ok=0
+            for attempt in $(seq 1 16); do
+              code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 6 --max-time 12 "https://$host/" 2>/dev/null)" || code=''
+              if test "$code" = 404; then ok=1; break; fi
+              sleep 5
+            done
+            test "$ok" = 1 || {
+              echo "::error::Expected valid TLS and 404 before application release at $host, got $code"; exit 1;
+            }
+            echo "TLS_READY_APP_NOT_DEPLOYED=$host"
+          done
+          curl -fsSL --connect-timeout 8 --max-time 20 https://local-life.proto.3cgroup.cn/ -o /dev/null
+          curl -fsSL --connect-timeout 8 --max-time 20 https://benefit.proto.3cgroup.cn/healthz -o /dev/null
+          curl -fsSL --connect-timeout 8 --max-time 20 https://proto.3cgroup.cn/ -o /dev/null
+          applied=0
+          trap - ERR
+          remote "bash '$stage/install-local-life-mvp-ingress.sh' cleanup '$stage'"
+          echo "MVP_CADDY_INGRESS_TLS_VERIFIED=yes"
