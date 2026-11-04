@@ -1,0 +1,23 @@
+# Registration only: the default branch is never a deployment source.
+# GitHub requires workflow_dispatch registration on default; prod contains real code.
+# Dispatching main will always skip its only job.
+name: Publish Local Life MVP ingress (controlled)
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'I authorize only the bounded Local Life MVP ingress and directories'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  registration-only:
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'Registration only; use the reviewed proto-infra/prod workflow'
