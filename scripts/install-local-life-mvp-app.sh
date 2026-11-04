@@ -59,6 +59,9 @@ restore_link() {
     if test -L "$target"; then
         local current
         current="$(readlink "$target")"
+        if test -n "$old" && test "$current" = "$base/releases/$old/$site"; then
+            return 0 # failure happened before static switch
+        fi
         if test "$current" != "$release/$site"; then
             echo "Unexpected $site symlink drift; refusing rollback" >&2
             return 1
