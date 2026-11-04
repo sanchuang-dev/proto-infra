@@ -91,7 +91,8 @@ jobs:
               remote "bash '$stage/install-local-life-mvp-ingress.sh' rollback '$stage'" || echo "::error::Rollback failed; operator intervention required"
             fi
           }
-          trap rollback ERR
+          # EXIT catches explicit exits and command failures, including public TLS checks.
+          trap rollback EXIT
           sshpass -e scp -q "${scp_opts[@]}" ops/local-life-mvp.caddy scripts/install-local-life-mvp-ingress.sh "$PROTO_USER@$PROTO_HOST:$stage/"
           applied=1
           remote "bash '$stage/install-local-life-mvp-ingress.sh' apply '$stage'"
@@ -111,6 +112,6 @@ jobs:
           curl -fsSL --connect-timeout 8 --max-time 20 https://benefit.proto.3cgroup.cn/healthz -o /dev/null
           curl -fsSL --connect-timeout 8 --max-time 20 https://proto.3cgroup.cn/ -o /dev/null
           applied=0
-          trap - ERR
+          trap - EXIT
           remote "bash '$stage/install-local-life-mvp-ingress.sh' cleanup '$stage'"
           echo "MVP_CADDY_INGRESS_TLS_VERIFIED=yes"
