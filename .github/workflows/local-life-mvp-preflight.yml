@@ -1,0 +1,95 @@
+# Controlled SSH inventory only. Application releases never originate here.
+# A PR only syntax-checks; a prod promotion runs read-only inventory once.
+name: Local Life MVP host preflight (read-only)
+
+on:
+  pull_request:
+    branches: [dev, test, prod]
+    paths:
+      - scripts/inspect-local-life-mvp.sh
+      - .github/workflows/local-life-mvp-preflight.yml
+  push:
+    branches: [prod]
+    paths:
+      - scripts/inspect-local-life-mvp.sh
+      - .github/workflows/local-life-mvp-preflight.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proto-infra-readonly-inventory
+  cancel-in-progress: false
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n scripts/inspect-local-life-mvp.sh
+
+  inspect:
+    needs: syntax
+    if: github.event_name == 'push' && github.ref == 'refs/heads/prod' && github.repository == 'sanchuang-dev/proto-infra'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm intended target and DNS (no DNS writes)
+        shell: bash
+        env:
+          PROTO_HOST: ${{ secrets.PROTO_HOST }}
+        run: |
+          set -euo pipefail
+          test -n "$PROTO_HOST"
+          case "$PROTO_HOST" in
+            8.148.148.135|proto.3cgroup.cn) ;;
+            *) echo "::error::Target differs from the currently approved company prototype host"; exit 1 ;;
+          esac
+          for host in local.proto.3cgroup.cn local-admin.proto.3cgroup.cn local-life.proto.3cgroup.cn; do
+            resolved="$(getent ahostsv4 "$host" | awk '{print $1}' | sort -u | paste -sd, -)"
+            printf 'DNS_%s=%s\n' "$host" "${resolved:-unresolved}"
+          done
+      - name: Install SSH client on disposable runner
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends sshpass >/dev/null
+      - name: Probe host with pinned SSH identity, without remote writes
+        shell: bash
+        env:
+          PROTO_HOST: ${{ secrets.PROTO_HOST }}
+          PROTO_USER: ${{ secrets.PROTO_USER }}
+          PROTO_SSH_PORT: ${{ secrets.PROTO_SSH_PORT }}
+          SSHPASS: ${{ secrets.PROTO_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          for name in PROTO_HOST PROTO_USER PROTO_SSH_PORT SSHPASS; do
+            test -n "${!name:-}" || { echo "::error::Missing $name"; exit 1; }
+          done
+          [[ "$PROTO_SSH_PORT" =~ ^[0-9]+$ ]] || exit 1
+          install -d -m 0700 "$RUNNER_TEMP/ssh"
+          ssh-keyscan -T 10 -p "$PROTO_SSH_PORT" -t ed25519 "$PROTO_HOST" 2>/dev/null > "$RUNNER_TEMP/ssh/known_hosts"
+          test -s "$RUNNER_TEMP/ssh/known_hosts"
+          actual="$(ssh-keygen -lf "$RUNNER_TEMP/ssh/known_hosts" -E sha256 | awk 'NR==1{print $2}')"
+          test "$actual" = "SHA256:wRPdG4mucUA07fKN1V/Fes+r38VK0zYWXZ4BYm/6Niw" || {
+            echo "::error::SSH identity mismatch; refusing connection"; exit 1;
+          }
+          sshpass -e ssh -T -p "$PROTO_SSH_PORT" \
+            -o StrictHostKeyChecking=yes \
+            -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts" \
+            -o PreferredAuthentications=password \
+            -o PubkeyAuthentication=no \
+            -o NumberOfPasswordPrompts=1 \
+            -o ConnectTimeout=12 \
+            "$PROTO_USER@$PROTO_HOST" 'bash -s' < scripts/inspect-local-life-mvp.sh
+      - name: Check public HTTPS without modifying Caddy
+        shell: bash
+        run: |
+          for host in local.proto.3cgroup.cn local-admin.proto.3cgroup.cn local-life.proto.3cgroup.cn; do
+            if curl --fail --silent --show-error -I --connect-timeout 5 --max-time 12 "https://$host/" >/dev/null; then
+              printf 'TLS_%s=ready\n' "$host"
+            else
+              printf 'TLS_%s=not_ready\n' "$host"
+            fi
+          done
