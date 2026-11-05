@@ -16,6 +16,23 @@ on:
         required: true
         type: boolean
         default: false
+      bootstrap_admin:
+        description: 'Create the first Local Life application admin (prod-only, only if none exists)'
+        required: false
+        type: boolean
+        default: false
+      admin_username:
+        description: '3-32 character application login name'
+        required: false
+        type: string
+      admin_display_name:
+        description: 'Administrator display name'
+        required: false
+        type: string
+      recipient_public_key_b64:
+        description: 'Base64-encoded 3072-bit RSA public key for encrypted one-time credential delivery'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -39,7 +56,7 @@ jobs:
           grep -Fq "AUTH_DEV_ENABLED=false" scripts/install-local-life-mvp-app.sh
           grep -Fq 'chmod -R a+rX' scripts/install-local-life-mvp-app.sh
           grep -Fq 'MVP_STATIC_READABLE_BY_CADDY=yes' scripts/install-local-life-mvp-app.sh
-          grep -Fq 'test -z "$(read_old)"' scripts/install-local-life-mvp-app.sh
+          grep -Fq "test -z \"\$(read_old)\"" scripts/install-local-life-mvp-app.sh
           tmp="$(mktemp -d)"
           trap 'rm -rf "$tmp"' EXIT
           mkdir -p "$tmp/source/assets" "$tmp/out"
@@ -222,3 +239,184 @@ jobs:
           applied=0
           trap - EXIT
           echo "MVP_DEPLOYMENT_VERIFIED_SHA=$SOURCE_SHA"
+
+  bootstrap-admin:
+    needs: validate
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'sanchuang-dev/proto-infra' && github.ref == 'refs/heads/prod' && inputs.bootstrap_admin == true && inputs.publish == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: local-life-mvp
+    steps:
+      - name: Validate inputs, pin host identity and prepare encrypted credential
+        id: prepare
+        shell: bash
+        env:
+          TARGET_HOST: ${{ secrets.PROTO_HOST }}
+          TARGET_USER: ${{ secrets.PROTO_USER }}
+          TARGET_PORT: ${{ secrets.PROTO_SSH_PORT }}
+          SSHPASS: ${{ secrets.PROTO_SSH_KEY }}
+          ADMIN_USERNAME: ${{ inputs.admin_username }}
+          ADMIN_DISPLAY_NAME: ${{ inputs.admin_display_name }}
+          RECIPIENT_PUBLIC_KEY_B64: ${{ inputs.recipient_public_key_b64 }}
+        run: |
+          set -Eeuo pipefail
+          ADMIN_USERNAME="${ADMIN_USERNAME,,}"
+          [[ "$ADMIN_USERNAME" =~ ^[a-z0-9._-]{3,32}$ ]]
+          [[ -n "$ADMIN_DISPLAY_NAME" && ${#ADMIN_DISPLAY_NAME} -le 40 ]]
+          [[ "$ADMIN_DISPLAY_NAME" != *$'\n'* && "$ADMIN_DISPLAY_NAME" != *$'\r'* ]]
+          [[ ${#RECIPIENT_PUBLIC_KEY_B64} -le 10000 ]]
+          [[ "$RECIPIENT_PUBLIC_KEY_B64" =~ ^[A-Za-z0-9+/=]+$ ]]
+          test -n "$TARGET_HOST" && test -n "$TARGET_USER" && test -n "$TARGET_PORT" && test -n "$SSHPASS"
+          case "$TARGET_HOST" in 8.148.148.135|proto.3cgroup.cn) ;; *) echo 'Unapproved host' >&2; exit 1 ;; esac
+          [[ "$TARGET_PORT" =~ ^[0-9]+$ ]]
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends sshpass expect >/dev/null
+          umask 077
+          mkdir -p "$RUNNER_TEMP/ssh" "$RUNNER_TEMP/admin-bootstrap-credential"
+          printf '%s' "$RECIPIENT_PUBLIC_KEY_B64" | base64 --decode > "$RUNNER_TEMP/ssh/recipient.pem"
+          openssl rsa -pubin -in "$RUNNER_TEMP/ssh/recipient.pem" -noout -text 2>/dev/null | grep -Fq 'Public-Key: (3072 bit)'
+          ssh-keyscan -T 10 -p "$TARGET_PORT" -t ed25519 "$TARGET_HOST" 2>/dev/null > "$RUNNER_TEMP/ssh/known_hosts"
+          test -s "$RUNNER_TEMP/ssh/known_hosts"
+          fingerprint="$(ssh-keygen -lf "$RUNNER_TEMP/ssh/known_hosts" -E sha256 | awk 'NR==1 {print $2}')"
+          test "$fingerprint" = 'SHA256:wRPdG4mucUA07fKN1V/Fes+r38VK0zYWXZ4BYm/6Niw' || {
+            echo 'SSH identity mismatch' >&2; exit 1;
+          }
+          remote() {
+            sshpass -e ssh -T -o StrictHostKeyChecking=yes \
+              -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts" \
+              -o PreferredAuthentications=password -o PubkeyAuthentication=no \
+              -o NumberOfPasswordPrompts=1 -o ConnectTimeout=12 \
+              -p "$TARGET_PORT" "$TARGET_USER@$TARGET_HOST" "$@"
+          }
+          db='/srv/proto/local-life-mvp/data/local-life.sqlite'
+          # Refuse to bootstrap over any existing admin, including a disabled one.
+          remote "test -s '$db' && count=\$(sqlite3 '$db' \"SELECT COUNT(*) FROM staff_accounts WHERE role='admin';\") && test \"\$count\" = 0 && docker inspect -f '{{.State.Running}}' local-life-mvp-api | grep -qx true && docker exec local-life-mvp-api test -s /app/dist/scripts/bootstrap-admin.js"
+          password="$(openssl rand -hex 32)"
+          echo "::add-mask::$password"
+          printf '%s' "$password" > "$RUNNER_TEMP/admin-bootstrap-password"
+          printf '%s\n' "$ADMIN_USERNAME" > "$RUNNER_TEMP/admin-bootstrap-credential/username.txt"
+          openssl pkeyutl -encrypt -pubin -inkey "$RUNNER_TEMP/ssh/recipient.pem" \
+            -in "$RUNNER_TEMP/admin-bootstrap-password" \
+            -out "$RUNNER_TEMP/admin-bootstrap-credential/password.enc" \
+            -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256
+          chmod 0600 "$RUNNER_TEMP/admin-bootstrap-password" "$RUNNER_TEMP/admin-bootstrap-credential/password.enc"
+          echo 'MVP_ADMIN_PREFLIGHT=PASS'
+          echo 'MVP_ADMIN_CREDENTIAL_ENCRYPTED_FOR_RECIPIENT=yes'
+
+      - name: Run the repository's one-time bootstrap-admin command
+        id: bootstrap
+        shell: bash
+        env:
+          TARGET_HOST: ${{ secrets.PROTO_HOST }}
+          TARGET_USER: ${{ secrets.PROTO_USER }}
+          TARGET_PORT: ${{ secrets.PROTO_SSH_PORT }}
+          SSHPASS: ${{ secrets.PROTO_SSH_KEY }}
+          ADMIN_USERNAME: ${{ inputs.admin_username }}
+          ADMIN_DISPLAY_NAME: ${{ inputs.admin_display_name }}
+        run: |
+          set -Eeuo pipefail
+          ADMIN_USERNAME="${ADMIN_USERNAME,,}"
+          BOOTSTRAP_PASSWORD="$(cat "$RUNNER_TEMP/admin-bootstrap-password")"
+          export BOOTSTRAP_PASSWORD
+          echo "::add-mask::$BOOTSTRAP_PASSWORD"
+          cat > "$RUNNER_TEMP/bootstrap-admin.exp" <<'EXPECT'
+          log_user 0
+          set timeout 60
+          set username $env(ADMIN_USERNAME)
+          set display_name $env(ADMIN_DISPLAY_NAME)
+          set password $env(BOOTSTRAP_PASSWORD)
+          spawn -noecho sshpass -e ssh -tt \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=$env(RUNNER_TEMP)/ssh/known_hosts \
+            -o PreferredAuthentications=password -o PubkeyAuthentication=no \
+            -o NumberOfPasswordPrompts=1 -o ConnectTimeout=12 \
+            -p $env(TARGET_PORT) "$env(TARGET_USER)@$env(TARGET_HOST)" \
+            "docker exec -it local-life-mvp-api node dist/scripts/bootstrap-admin.js"
+          expect {
+            -re {管理员登录名.*: ?} { send -- "$username\r" }
+            timeout { exit 31 }
+            eof { exit 32 }
+          }
+          expect {
+            -re {管理员显示名称.*: ?} { send -- "$display_name\r" }
+            timeout { exit 33 }
+            eof { exit 34 }
+          }
+          expect {
+            -re {初始密码.*: ?} { send -- "$password\r" }
+            timeout { exit 35 }
+            eof { exit 36 }
+          }
+          expect {
+            -re {管理员账户创建成功} {}
+            timeout { exit 37 }
+            eof { exit 38 }
+          }
+          expect eof
+          set result [wait]
+          exit [lindex $result 3]
+          EXPECT
+          expect -f "$RUNNER_TEMP/bootstrap-admin.exp"
+          db='/srv/proto/local-life-mvp/data/local-life.sqlite'
+          remote() {
+            sshpass -e ssh -T -o StrictHostKeyChecking=yes \
+              -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts" \
+              -o PreferredAuthentications=password -o PubkeyAuthentication=no \
+              -o NumberOfPasswordPrompts=1 -o ConnectTimeout=12 \
+              -p "$TARGET_PORT" "$TARGET_USER@$TARGET_HOST" "$@"
+          }
+          actual="$(remote "sqlite3 -noheader -separator '|' '$db' \"SELECT username || '|' || role || '|' || status FROM staff_accounts WHERE username='$ADMIN_USERNAME';\"")"
+          test "$actual" = "$ADMIN_USERNAME|admin|active"
+          audit="$(remote "sqlite3 '$db' \"SELECT COUNT(*) FROM audit_logs WHERE event='staff.bootstrap_admin' AND target_id=(SELECT id FROM staff_accounts WHERE username='$ADMIN_USERNAME');\"")"
+          test "$audit" = 1
+          echo "MVP_ADMIN_CREATED username=$ADMIN_USERNAME role=admin status=active audit=verified"
+
+      - name: Upload only the recipient-encrypted one-time password
+        if: always() && steps.prepare.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-life-mvp-admin-bootstrap-${{ github.run_id }}
+          path: ${{ runner.temp }}/admin-bootstrap-credential/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+      - name: Verify real HTTPS login, administrator role and logout
+        if: steps.bootstrap.outcome == 'success'
+        shell: bash
+        env:
+          ADMIN_USERNAME: ${{ inputs.admin_username }}
+        run: |
+          set -Eeuo pipefail
+          ADMIN_USERNAME="${ADMIN_USERNAME,,}"
+          umask 077
+          password="$(cat "$RUNNER_TEMP/admin-bootstrap-password")"
+          echo "::add-mask::$password"
+          origin='https://local-admin.proto.3cgroup.cn'
+          jar="$RUNNER_TEMP/admin-cookies.txt"
+          csrf_json="$RUNNER_TEMP/admin-csrf.json"
+          login_json="$RUNNER_TEMP/admin-login.json"
+          curl -fsS -c "$jar" "$origin/api/auth/csrf" > "$csrf_json"
+          csrf="$(jq -er '.csrfToken' "$csrf_json")"
+          ADMIN_USERNAME="$ADMIN_USERNAME" ADMIN_PASSWORD="$password" python3 - "$RUNNER_TEMP/admin-login-payload.json" <<'PY'
+          import json, os, sys
+          with open(sys.argv[1], 'w', encoding='utf-8') as output:
+              json.dump({'username': os.environ['ADMIN_USERNAME'], 'password': os.environ['ADMIN_PASSWORD']}, output)
+          PY
+          chmod 0600 "$RUNNER_TEMP/admin-login-payload.json"
+          curl -fsS -b "$jar" -c "$jar" \
+            -H "Origin: $origin" -H 'Content-Type: application/json' \
+            -H "x-csrf-token: $csrf" --data-binary @"$RUNNER_TEMP/admin-login-payload.json" \
+            "$origin/api/auth/login" > "$login_json"
+          jq -e --arg username "$ADMIN_USERNAME" \
+            '.authenticated == true and .staff.role == "admin" and .staff.username == $username' \
+            "$login_json" >/dev/null
+          csrf="$(jq -er '.csrfToken' "$login_json")"
+          status="$(curl -sS -b "$jar" -c "$jar" -o /dev/null -w '%{http_code}' \
+            -X POST -H "Origin: $origin" -H "x-csrf-token: $csrf" \
+            "$origin/api/auth/logout")"
+          test "$status" = 204
+          curl -fsS -b "$jar" "$origin/api/auth/session" | jq -e '.authenticated == false' >/dev/null
+          rm -f "$RUNNER_TEMP/admin-bootstrap-password" "$RUNNER_TEMP/admin-login-payload.json" "$jar" "$csrf_json" "$login_json"
+          echo 'MVP_ADMIN_HTTPS_LOGIN_AND_LOGOUT=PASS'
