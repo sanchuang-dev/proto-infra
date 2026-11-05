@@ -10,13 +10,29 @@ on:
         required: true
         type: boolean
         default: false
+      bootstrap_admin:
+        description: 'Create the first Local Life application admin (prod-only, only if none exists)'
+        required: false
+        type: boolean
+        default: false
+      admin_username:
+        description: '3-32 character application login name'
+        required: false
+        type: string
+      admin_display_name:
+        description: 'Administrator display name'
+        required: false
+        type: string
+      recipient_public_key_b64:
+        description: 'Base64-encoded 3072-bit RSA public key for encrypted one-time credential delivery'
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   registration-only:
-    if: ${{ false }}
     runs-on: ubuntu-latest
     steps:
       - run: echo 'Registration only; real deployment requires proto-infra/prod'
