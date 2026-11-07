@@ -1,0 +1,21 @@
+# Default-branch registration stub only. Never publish from main.
+name: Publish 3C Android download
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the pinned signed Chromium APK to the prototype server
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  registration-only:
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'Registration only; deploy implementation is in proto-infra/prod'
