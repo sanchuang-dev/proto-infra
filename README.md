@@ -22,3 +22,10 @@
 - `local-life.proto.3cgroup.cn`：本地生活移动端原型。源代码仍由 `sanchuang-dev/local-life` 维护；本仓库仅固定已验收 `prod` revision、以根路径重新构建并发布到 `/srv/proto/local-life/current`。
 - local-life 不自动跟随上游分支 HEAD。更新展示版本时先在产品仓库走 `dev → test → prod`，再更新本仓库的固定 revision，并继续走本仓库 `dev → test → prod`。
 
+
+## Fitness mirror static prototype
+
+- Source: [sanchuang-dev/ai-fitness-mirror](https://github.com/sanchuang-dev/ai-fitness-mirror), fixed commit in `scripts/prepare-fitness-mirror.sh`.
+- Site: `https://fitness-mirror.proto.3cgroup.cn/` (existing AI mirror demo login).
+- Separate, manually dispatched production release: `deploy-fitness-mirror.yml`;
+  doesn't rebuild or reinstall the four existing mirror sites.

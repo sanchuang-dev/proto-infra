@@ -1,0 +1,109 @@
+# Manual, prod-only release of the immutable fitness H5 prototype.
+name: Publish fitness mirror prototype
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the pinned fitness H5 snapshot to the prototype host
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proto-infra-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.repository == 'sanchuang-dev/proto-infra' && github.ref == 'refs/heads/prod' && inputs.publish == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build pinned snapshot and check static contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/prepare-fitness-mirror.sh scripts/install-fitness-mirror.sh
+          bash scripts/prepare-fitness-mirror.sh "$RUNNER_TEMP/fitness"
+          mkdir -p "$RUNNER_TEMP/fitness-check"
+          tar -xzf "$RUNNER_TEMP/fitness/fitness-mirror.tar.gz" -C "$RUNNER_TEMP/fitness-check"
+          for f in index.html gym.html hotel.html assets/mirror.css assets/mirror.js assets/stock/credits.json; do
+            test -s "$RUNNER_TEMP/fitness-check/$f"
+          done
+          test "$(grep -Fc 'fitness-mirror.proto.3cgroup.cn {' Caddyfile)" = 1
+          grep -Fq 'demo {env.PROTO_AI_MIRROR_HASH}' Caddyfile
+          grep -Fq 'root * /srv/proto/fitness-mirror/current' Caddyfile
+      - name: Verify hostname matches the configured prototype host
+        shell: bash
+        env:
+          PROTO_HOST: ${{ secrets.PROTO_HOST }}
+        run: |
+          set -euo pipefail
+          test -n "$PROTO_HOST"
+          target=$(getent ahostsv4 "$PROTO_HOST" | awk '{print $1}' | sort -u)
+          actual=$(getent ahostsv4 fitness-mirror.proto.3cgroup.cn | awk '{print $1}' | sort -u)
+          test -n "$target" && test -n "$actual"
+          test -n "$(comm -12 <(printf '%s\n' "$target") <(printf '%s\n' "$actual"))"
+          echo 'FITNESS_DNS_MATCH=yes'
+      - name: Install isolated site with SSH identity pin and rollback
+        shell: bash
+        env:
+          PROTO_HOST: ${{ secrets.PROTO_HOST }}
+          PROTO_USER: ${{ secrets.PROTO_USER }}
+          PROTO_SSH_PORT: ${{ secrets.PROTO_SSH_PORT }}
+          SSHPASS: ${{ secrets.PROTO_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          for name in PROTO_HOST PROTO_USER PROTO_SSH_PORT SSHPASS; do
+            test -n "$(printenv "$name")" || { echo "::error::Missing $name"; exit 1; }
+          done
+          [[ "$PROTO_SSH_PORT" =~ ^[0-9]+$ ]] || exit 1
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends sshpass >/dev/null
+          install -d -m 0700 "$RUNNER_TEMP/ssh"
+          ssh-keyscan -T 10 -p "$PROTO_SSH_PORT" -t ed25519 "$PROTO_HOST" 2>/dev/null > "$RUNNER_TEMP/ssh/known_hosts"
+          test -s "$RUNNER_TEMP/ssh/known_hosts"
+          observed=$(ssh-keygen -lf "$RUNNER_TEMP/ssh/known_hosts" -E sha256 | awk 'NR==1{print $2}')
+          test "$observed" = "SHA256:wRPdG4mucUA07fKN1V/Fes+r38VK0zYWXZ4BYm/6Niw" || { echo '::error::SSH identity mismatch'; exit 1; }
+          host="$PROTO_USER@$PROTO_HOST"
+          stage=$(sshpass -e ssh -T -p "$PROTO_SSH_PORT" \
+            -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts" \
+            -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ConnectTimeout=15 \
+            "$host" 'mktemp -d /tmp/proto-fitness.XXXXXX')
+          [[ "$stage" =~ ^/tmp/proto-fitness\.[A-Za-z0-9]+$ ]] || exit 1
+          sshpass -e scp -q -P "$PROTO_SSH_PORT" \
+            -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts" \
+            -o PreferredAuthentications=password -o PubkeyAuthentication=no \
+            "$RUNNER_TEMP/fitness/fitness-mirror.tar.gz" Caddyfile \
+            scripts/install-fitness-mirror.sh scripts/validate-proto-auth.sh "$host:$stage/"
+          sshpass -e ssh -T -p "$PROTO_SSH_PORT" \
+            -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts" \
+            -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ConnectTimeout=15 \
+            "$host" "bash '$stage/install-fitness-mirror.sh' '$stage'"
+      - name: Verify public HTTPS auth and existing neighboring routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          host=https://fitness-mirror.proto.3cgroup.cn
+          for path in / /index.html /gym.html /hotel.html /assets/mirror.css /assets/mirror.js /assets/stock/gym_strength.jpg; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --retry 4 --retry-delay 3 --max-time 20 "$host$path")
+            [[ "$code" == 401 ]] || { echo "::error::Unexpected $path: $code"; exit 1; }
+            echo "FITNESS_PROTECTED=$path:401"
+          done
+          curl -fsSL --max-time 20 https://proto.3cgroup.cn/ -o "$RUNNER_TEMP/portal.html"
+          grep -Fq '三创 · 演示中心' "$RUNNER_TEMP/portal.html"
+          for neighbor in ai-mirror beauty-mirror hair-mirror fitting-mirror; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "https://$neighbor.proto.3cgroup.cn/")
+            [[ "$code" == 401 ]] || { echo "::error::Neighbor regression: $neighbor $code"; exit 1; }
+          done
+          echo 'FITNESS_RELEASE=HTTPS auth and neighbor routes OK'
