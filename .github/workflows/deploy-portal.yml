@@ -61,6 +61,6 @@ jobs:
           cmp "$RUNNER_TEMP/generated-portal/index.html" "$RUNNER_TEMP/actual-portal.html"
           ! grep -Fq 'class="project-repo"' "$RUNNER_TEMP/actual-portal.html"
           ! grep -Fq 'GitHub 项目仓库 ↗' "$RUNNER_TEMP/actual-portal.html"
-          test "$(grep -o 'class="open-link"' "$RUNNER_TEMP/actual-portal.html" | wc -l)" -eq 6
+          test "$(grep -o 'class="open-link"' "$RUNNER_TEMP/actual-portal.html" | wc -l)" -eq 7
           echo "LIVE_PORTAL_REPO_BUTTONS=none"
           echo "LIVE_PORTAL_MATCHES_GENERATED_LAB_TEMPLATE=yes"
