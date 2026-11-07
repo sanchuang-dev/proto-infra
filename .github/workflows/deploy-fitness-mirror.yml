@@ -1,0 +1,21 @@
+# Default branch registration stub only. No production code or deployment from main.
+name: Publish fitness mirror prototype
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the pinned fitness H5 snapshot to the prototype host
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  registration-only:
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'Registration only; real deploy code is on proto-infra/prod'
