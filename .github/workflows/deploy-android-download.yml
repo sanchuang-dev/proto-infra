@@ -71,7 +71,7 @@ jobs:
           [[ "$available" =~ ^[0-9]+$ ]] && (( available >= 410000 )) || { echo "::error::Insufficient server disk space"; exit 1; }
           stage=$(sshpass -e ssh -T -p "$PROTO_SSH_PORT" "${opts[@]}" "$host" \
             'mktemp -d /srv/proto/portal/current/.android-stage.XXXXXX')
-          [[ "$stage" =~ ^/srv/proto/portal/current/\.android-stage\.[A-Za-z0-9]+$ ]] || exit 1
+          [[ "$stage" =~ ^/srv/proto/\.android-stage\.[A-Za-z0-9]+$ ]] || exit 1
           cleanup() {
             sshpass -e ssh -T -p "$PROTO_SSH_PORT" "${opts[@]}" "$host" \
               "test -d '$stage' && rm -rf -- '$stage' || true" >/dev/null 2>&1 || true
