@@ -8,7 +8,6 @@ systemctl is-active --quiet caddy
 grep -Fq '# Managed by sanchuang-dev/proto-infra' /etc/caddy/Caddyfile
 test -s "$stage/fitness-mirror.tar.gz"
 test -s "$stage/Caddyfile"
-test -s "$stage/validate-proto-auth.sh"
 if [[ -e /srv/proto/fitness-mirror/current && ! -L /srv/proto/fitness-mirror/current ]]; then
   echo "Refusing to overwrite a non-symlink fitness mirror site" >&2
   exit 1
@@ -42,7 +41,7 @@ next_config=old if existing else old.rstrip()+'\n\n'+approved+'\n'
 out.write_text(next_config,encoding='utf8')
 print('FITNESS_CADDY_CHANGE='+('already_current' if existing else 'isolated_append'))
 PY
-bash "$stage/validate-proto-auth.sh" /etc/caddy/proto-auth.env "$stage/Caddyfile.next"
+/usr/local/bin/caddy validate --config "$stage/Caddyfile.next"
 prev_link="$(readlink /srv/proto/fitness-mirror/current 2>/dev/null || true)"
 cp -p /etc/caddy/Caddyfile "$stage/Caddyfile.prev"
 rollback() {
@@ -77,20 +76,20 @@ if ! cmp -s /etc/caddy/Caddyfile "$stage/Caddyfile.next"; then
 fi
 systemctl reload caddy
 systemctl is-active --quiet caddy
-bash "$stage/validate-proto-auth.sh" /etc/caddy/proto-auth.env /etc/caddy/Caddyfile
+/usr/local/bin/caddy validate --config /etc/caddy/Caddyfile
 # Newly introduced hostname may need first-time ACME issuance.
 site_ok=0
 for attempt in $(seq 1 16); do
   code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 12 \
     --resolve fitness-mirror.proto.3cgroup.cn:443:127.0.0.1 \
     https://fitness-mirror.proto.3cgroup.cn/ 2>/dev/null || true)"
-  if [[ "$code" == 401 ]]; then site_ok=1; break; fi
+  if [[ "$code" == 200 ]]; then site_ok=1; break; fi
   sleep 5
 done
 [[ "$site_ok" -eq 1 ]] || { echo "FITNESS_HTTPS_SMOKE=failed" >&2; false; }
 test -s /srv/proto/fitness-mirror/current/gym.html
 test -s /srv/proto/fitness-mirror/current/hotel.html
 echo "FITNESS_MIRROR_DEPLOYED=$release_tag"
-echo "FITNESS_HTTPS_AUTH=401"
+echo "FITNESS_HTTPS_PUBLIC=200"
 trap - ERR
 rm -rf -- "$stage"

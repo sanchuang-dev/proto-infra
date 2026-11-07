@@ -26,6 +26,6 @@
 ## Fitness mirror static prototype
 
 - Source: [sanchuang-dev/ai-fitness-mirror](https://github.com/sanchuang-dev/ai-fitness-mirror), fixed commit in `scripts/prepare-fitness-mirror.sh`.
-- Site: `https://fitness-mirror.proto.3cgroup.cn/` (existing AI mirror demo login).
+- Site: `https://fitness-mirror.proto.3cgroup.cn/` (public static concept demo).
 - Separate, manually dispatched production release: `deploy-fitness-mirror.yml`;
   doesn't rebuild or reinstall the four existing mirror sites.

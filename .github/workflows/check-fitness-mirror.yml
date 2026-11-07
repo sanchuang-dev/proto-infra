@@ -38,7 +38,6 @@ jobs:
           done
           test "$(find "$RUNNER_TEMP/unpack/assets/stock" -name '*.jpg' | wc -l)" -eq 12
           test "$(grep -Fc 'fitness-mirror.proto.3cgroup.cn {' Caddyfile)" -eq 1
-          grep -Fq 'demo {env.PROTO_AI_MIRROR_HASH}' Caddyfile
           grep -Fq 'root * /srv/proto/fitness-mirror/current' Caddyfile
           grep -Fq 'header X-Robots-Tag "noindex, nofollow"' Caddyfile
           echo 'FITNESS_SNAPSHOT=verified'

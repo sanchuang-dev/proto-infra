@@ -59,12 +59,13 @@ The **only app source** is `sanchuang-dev/ai-fitness-mirror/prototype/`, pinned 
 portrait H5 mock: no camera recognition, health claims, or real training video.
 
 - `index.html` selects venue; `gym.html` and `hotel.html` run directly on mirror WebView.
-- The site reuses the **existing** `PROTO_AI_MIRROR_HASH` account and `demo` username;
-  it does not create, duplicate, or disclose a new password.
+- The fitness prototype is **public**, matching the currently live showcase hosts;
+  it has `X-Robots-Tag: noindex, nofollow` and no production data. The per-site auth
+  templates in this repo are staged and not currently deployed on the server.
 - `.github/workflows/deploy-fitness-mirror.yml` is a **manual prod-only** publish.
   It appends only the approved fitness Caddy host block to the currently live
   Caddyfile, installs a versioned snapshot, and rolls back on installation or local HTTPS failure.
 - No implicit republish of the portal, ai-mirror, beauty-mirror, hair-mirror,
   fitting-mirror, or local-life. Other sites must remain healthy after publish.
-- Anonymous HTTPS responds 401 for both pages and assets. To inspect the actual
-  content a human tester must authenticate in a real browser/Android WebView.
+- Anonymous HTTPS must return 200 for pages and static assets. A real Android
+  WebView / mirror screen interaction is still a separate device acceptance check.
