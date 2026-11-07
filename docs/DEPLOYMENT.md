@@ -50,3 +50,21 @@ Other product publishing remains owned by its documented workflow; do not use lo
 ## Safety
 
 Never store passwords in a committed file or logs. Do not run destructive synchronization by default. Production rollback and Caddy configuration updates require separate validation.
+
+### Fitness mirror · hotel and gym scenes
+
+`fitness-mirror.proto.3cgroup.cn` is the fifth, separately deployed static mirror prototype.
+The **only app source** is `sanchuang-dev/ai-fitness-mirror/prototype/`, pinned by
+`scripts/prepare-fitness-mirror.sh` to an exact Git commit. This is a 1080×1920
+portrait H5 mock: no camera recognition, health claims, or real training video.
+
+- `index.html` selects venue; `gym.html` and `hotel.html` run directly on mirror WebView.
+- The site reuses the **existing** `PROTO_AI_MIRROR_HASH` account and `demo` username;
+  it does not create, duplicate, or disclose a new password.
+- `.github/workflows/deploy-fitness-mirror.yml` is a **manual prod-only** publish.
+  It appends only the approved fitness Caddy host block to the currently live
+  Caddyfile, installs a versioned snapshot, and rolls back on installation or local HTTPS failure.
+- No implicit republish of the portal, ai-mirror, beauty-mirror, hair-mirror,
+  fitting-mirror, or local-life. Other sites must remain healthy after publish.
+- Anonymous HTTPS responds 401 for both pages and assets. To inspect the actual
+  content a human tester must authenticate in a real browser/Android WebView.
