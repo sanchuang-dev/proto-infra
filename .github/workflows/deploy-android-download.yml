@@ -96,6 +96,7 @@ jobs:
           code=$(curl -fsSL --range 0-15 --max-time 30 -o "$RUNNER_TEMP/apk-prefix" -w '%{http_code}' "$base/d/3c.apk")
           test "$code" = 206
           test "$(stat -c '%s' "$RUNNER_TEMP/apk-prefix")" -eq 16
-          curl -fsSL --max-time 30 "$base/" | grep -Fq '三创 · 演示中心'
+          curl -fsSL --max-time 30 "$base/" -o "$RUNNER_TEMP/portal-index.html"
+          grep -Fq '三创 · 演示中心' "$RUNNER_TEMP/portal-index.html"
           echo 'DOWNLOAD_LIVE=https://proto.3cgroup.cn/d/'
           echo 'DOWNLOAD_APK=https://proto.3cgroup.cn/d/3c.apk'
