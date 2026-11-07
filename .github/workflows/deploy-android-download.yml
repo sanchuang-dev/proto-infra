@@ -1,0 +1,101 @@
+# Manual, prod-only publish of the immutable 3C Chromium signed APK.
+name: Publish 3C Android download
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish signed Chromium APK to proto.3cgroup.cn/d/
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proto-infra-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.repository == 'sanchuang-dev/proto-infra' && github.ref == 'refs/heads/prod' && inputs.publish == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Fetch and verify pinned, signed GitHub Release asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/install-android-download.sh
+          test -s downloads/index.html
+          apk="$RUNNER_TEMP/3c.apk"
+          curl -fL --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 30 --max-time 900 \
+            'https://github.com/sanchuang-dev/3c-app-prototype/releases/download/v0.2.0-rc.1/3C-Prototype-Chromium-v0.2.0-rc.1.apk' \
+            -o "$apk"
+          test "$(stat -c '%s' "$apk")" -eq 317264746
+          echo "083e0dd95174280ec39dcd671c7f1b4d426fbe7f3a425532d0832942e9f0ff25  $apk" | sha256sum -c -
+          echo "SIGNED_CHROMIUM_RELEASE=verified"
+      - name: Upload to isolated static directory on prototype server
+        shell: bash
+        env:
+          PROTO_HOST: ${{ secrets.PROTO_HOST }}
+          PROTO_USER: ${{ secrets.PROTO_USER }}
+          PROTO_SSH_PORT: ${{ secrets.PROTO_SSH_PORT }}
+          SSHPASS: ${{ secrets.PROTO_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          for key in PROTO_HOST PROTO_USER PROTO_SSH_PORT SSHPASS; do
+            test -n "${!key:-}" || { echo "::error::Missing $key"; exit 1; }
+          done
+          [[ "$PROTO_SSH_PORT" =~ ^[0-9]+$ ]] || exit 1
+          target=$(getent ahostsv4 "$PROTO_HOST" | awk '{print $1}' | sort -u)
+          actual=$(getent ahostsv4 proto.3cgroup.cn | awk '{print $1}' | sort -u)
+          test -n "$target" && test -n "$actual"
+          test -n "$(comm -12 <(printf '%s\n' "$target") <(printf '%s\n' "$actual"))"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends sshpass >/dev/null
+          install -d -m 0700 "$RUNNER_TEMP/ssh"
+          ssh-keyscan -T 10 -p "$PROTO_SSH_PORT" -t ed25519 "$PROTO_HOST" 2>/dev/null > "$RUNNER_TEMP/ssh/known_hosts"
+          test -s "$RUNNER_TEMP/ssh/known_hosts"
+          observed=$(ssh-keygen -lf "$RUNNER_TEMP/ssh/known_hosts" -E sha256 | awk 'NR==1{print $2}')
+          test "$observed" = "SHA256:wRPdG4mucUA07fKN1V/Fes+r38VK0zYWXZ4BYm/6Niw" || { echo "::error::SSH identity mismatch"; exit 1; }
+          opts=(-o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts" \
+            -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ConnectTimeout=15)
+          host="$PROTO_USER@$PROTO_HOST"
+          available=$(sshpass -e ssh -T -p "$PROTO_SSH_PORT" "${opts[@]}" "$host" \
+            'test -s /srv/proto/portal/current/index.html && df -Pk /srv/proto/portal/current | tail -1 | tr -s " " | cut -d" " -f4')
+          [[ "$available" =~ ^[0-9]+$ ]] && (( available >= 410000 )) || { echo "::error::Insufficient server disk space"; exit 1; }
+          stage=$(sshpass -e ssh -T -p "$PROTO_SSH_PORT" "${opts[@]}" "$host" \
+            'mktemp -d /srv/proto/portal/current/.android-stage.XXXXXX')
+          [[ "$stage" =~ ^/srv/proto/portal/current/\.android-stage\.[A-Za-z0-9]+$ ]] || exit 1
+          cleanup() {
+            sshpass -e ssh -T -p "$PROTO_SSH_PORT" "${opts[@]}" "$host" \
+              "test -d '$stage' && rm -rf -- '$stage' || true" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          sshpass -e scp -q -P "$PROTO_SSH_PORT" "${opts[@]}" \
+            "$RUNNER_TEMP/3c.apk" "$host:$stage/3c.apk"
+          sshpass -e scp -q -P "$PROTO_SSH_PORT" "${opts[@]}" \
+            downloads/index.html scripts/install-android-download.sh "$host:$stage/"
+          sshpass -e ssh -T -p "$PROTO_SSH_PORT" "${opts[@]}" "$host" \
+            "bash '$stage/install-android-download.sh' '$stage'"
+      - name: Verify HTTPS page, APK size, partial download and existing portal
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=https://proto.3cgroup.cn
+          curl -fsSL --retry 4 --retry-delay 3 --max-time 30 "$base/d/" -o "$RUNNER_TEMP/download-index.html"
+          grep -Fq '3C PROTOTYPE' "$RUNNER_TEMP/download-index.html"
+          grep -Fq 'href="./3c.apk"' "$RUNNER_TEMP/download-index.html"
+          curl -fsSI --max-time 30 "$base/d/3c.apk" -o "$RUNNER_TEMP/apk-headers"
+          tr -d '\r' < "$RUNNER_TEMP/apk-headers" | grep -qi '^content-length: 317264746$'
+          code=$(curl -fsSL --range 0-15 --max-time 30 -o "$RUNNER_TEMP/apk-prefix" -w '%{http_code}' "$base/d/3c.apk")
+          test "$code" = 206
+          test "$(stat -c '%s' "$RUNNER_TEMP/apk-prefix")" -eq 16
+          curl -fsSL --max-time 30 "$base/" | grep -Fq '三创 · 演示中心'
+          echo 'DOWNLOAD_LIVE=https://proto.3cgroup.cn/d/'
+          echo 'DOWNLOAD_APK=https://proto.3cgroup.cn/d/3c.apk'
