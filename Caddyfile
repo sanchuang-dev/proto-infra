@@ -51,14 +51,6 @@ fitting-mirror.proto.3cgroup.cn {
     file_server
 }
 
-# Benefit Hub is a system-level prototype, not a live entitlement fulfillment service.
-# Application lifecycle is owned by sanchuang-dev/benefit-hub (dev); Caddy stays here.
-benefit.proto.3cgroup.cn {
-    encode zstd gzip
-    header X-Robots-Tag "noindex, nofollow"
-    reverse_proxy 127.0.0.1:18080
-}
-
 # Hotel and gym H5 scenes, protected with the existing AI mirror demo account.
 # No new credential or other prototype app needs to be modified.
 fitness-mirror.proto.3cgroup.cn {
@@ -70,3 +62,12 @@ fitness-mirror.proto.3cgroup.cn {
     encode zstd gzip
     file_server
 }
+
+# Benefit Hub is a system-level prototype, not a live entitlement fulfillment service.
+# Application lifecycle is owned by sanchuang-dev/benefit-hub (dev); Caddy stays here.
+benefit.proto.3cgroup.cn {
+    encode zstd gzip
+    header X-Robots-Tag "noindex, nofollow"
+    reverse_proxy 127.0.0.1:18080
+}
+
