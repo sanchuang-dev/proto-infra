@@ -41,7 +41,6 @@ jobs:
             test -s "$RUNNER_TEMP/fitness-check/$f"
           done
           test "$(grep -Fc 'fitness-mirror.proto.3cgroup.cn {' Caddyfile)" = 1
-          grep -Fq 'demo {env.PROTO_AI_MIRROR_HASH}' Caddyfile
           grep -Fq 'root * /srv/proto/fitness-mirror/current' Caddyfile
       - name: Verify hostname matches the configured prototype host
         shell: bash
@@ -85,7 +84,7 @@ jobs:
             -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts" \
             -o PreferredAuthentications=password -o PubkeyAuthentication=no \
             "$RUNNER_TEMP/fitness/fitness-mirror.tar.gz" Caddyfile \
-            scripts/install-fitness-mirror.sh scripts/validate-proto-auth.sh "$host:$stage/"
+            scripts/install-fitness-mirror.sh "$host:$stage/"
           sshpass -e ssh -T -p "$PROTO_SSH_PORT" \
             -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts" \
             -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ConnectTimeout=15 \
@@ -97,13 +96,14 @@ jobs:
           host=https://fitness-mirror.proto.3cgroup.cn
           for path in / /index.html /gym.html /hotel.html /assets/mirror.css /assets/mirror.js /assets/stock/gym_strength.jpg; do
             code=$(curl -sS -o /dev/null -w '%{http_code}' --retry 4 --retry-delay 3 --max-time 20 "$host$path")
-            [[ "$code" == 401 ]] || { echo "::error::Unexpected $path: $code"; exit 1; }
-            echo "FITNESS_PROTECTED=$path:401"
+            [[ "$code" == 200 ]] || { echo "::error::Unexpected $path: $code"; exit 1; }
+            echo "FITNESS_PUBLIC=$path:200"
           done
+          curl -fsSI --max-time 20 "$host/" | tr -d '\r' | grep -qi '^x-robots-tag: noindex, nofollow$'
           curl -fsSL --max-time 20 https://proto.3cgroup.cn/ -o "$RUNNER_TEMP/portal.html"
           grep -Fq '三创 · 演示中心' "$RUNNER_TEMP/portal.html"
           for neighbor in ai-mirror beauty-mirror hair-mirror fitting-mirror; do
             code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "https://$neighbor.proto.3cgroup.cn/")
-            [[ "$code" == 401 ]] || { echo "::error::Neighbor regression: $neighbor $code"; exit 1; }
+            [[ "$code" == 200 ]] || { echo "::error::Neighbor regression: $neighbor $code"; exit 1; }
           done
-          echo 'FITNESS_RELEASE=HTTPS auth and neighbor routes OK'
+          echo 'FITNESS_RELEASE=HTTPS public and neighbor routes OK'
