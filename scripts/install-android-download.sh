@@ -9,7 +9,7 @@ expected_size=317264746
 expected_sha=083e0dd95174280ec39dcd671c7f1b4d426fbe7f3a425532d0832942e9f0ff25
 
 [[ "$(id -u)" -eq 0 ]] || { echo "DOWNLOAD_INSTALL=requires_root" >&2; exit 1; }
-[[ "$stage" =~ ^/srv/proto/portal/current/\.android-stage\.[A-Za-z0-9]+$ ]] || {
+[[ "$stage" =~ ^/srv/proto/\.android-stage\.[A-Za-z0-9]+$ ]] || {
   echo "DOWNLOAD_INSTALL=unexpected_stage" >&2
   exit 1
 }
