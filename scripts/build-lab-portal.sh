@@ -3,7 +3,7 @@
 # No local fork of the layout, styles or project data is kept in proto-infra.
 set -euo pipefail
 out="${1:?expected output directory}"
-source_rev=339c4f7db3713b133546f6d2096a109d7f8eb351
+source_rev=c30d48766db653ecc4bbeb042abdf69918dbb6bd
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 git -C "$work" init -q
@@ -22,7 +22,7 @@ import sys
 
 src, dst = map(Path, sys.argv[1:])
 html = src.read_text(encoding="utf-8")
-# Keep the lab template, all 6 original cards, copy, typography and colors.
+# Keep the lab template, all 7 registered cards, copy, typography and colors.
 # Only hosting destinations differ: our four first-batch apps have live Caddy hosts.
 links = {
     'href="https://sanchuang-dev.github.io/ai-mirror/dev/"': 'href="https://ai-mirror.proto.3cgroup.cn/"',
@@ -46,17 +46,17 @@ repo_link = re.compile(
     r'aria-label="查看[^"]+GitHub 仓库">GitHub 项目仓库 ↗</a>'
 )
 html, removed = repo_link.subn("", html)
-if removed != 5 or 'class="project-repo"' in html or 'GitHub 项目仓库 ↗' in html:
+if removed != 6 or 'class="project-repo"' in html or 'GitHub 项目仓库 ↗' in html:
     raise SystemExit(f"Unexpected repository-link count or residual action: {removed}")
 print(f"PROTO_PORTAL_REPO_LINKS_REMOVED={removed}")
-if (html.count('class="project ') != 6 or
+if (html.count('class="project ') != 7 or
         "让想法" not in html or
         "先被看见" not in html or
         "三创 · 演示中心" not in html or
         "<!--DEMO_CARDS-->" in html or
         "<!--DEMO_COUNT-->" in html):
     raise SystemExit("Unexpected upstream portal structure")
-for expected in ['local-life', 'ai-mirror', 'beauty-mirror', 'hair-mirror', 'fitting-mirror']:
+for expected in ['local-life', 'ai-mirror', 'beauty-mirror', 'hair-mirror', 'fitting-mirror', 'fitness-mirror']:
     if f'https://{expected}.proto.3cgroup.cn/' not in html:
         raise SystemExit(f"Missing local host: {expected}")
 dst.write_text(html, encoding="utf-8")

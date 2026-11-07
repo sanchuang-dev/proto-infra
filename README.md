@@ -28,4 +28,4 @@
 - Source: [sanchuang-dev/ai-fitness-mirror](https://github.com/sanchuang-dev/ai-fitness-mirror), fixed commit in `scripts/prepare-fitness-mirror.sh`.
 - Site: `https://fitness-mirror.proto.3cgroup.cn/` (public static concept demo).
 - Separate, manually dispatched production release: `deploy-fitness-mirror.yml`;
-  doesn't rebuild or reinstall the four existing mirror sites.
+  doesn't rebuild or reinstall the four existing mirror sites. The customer portal is generated from the pinned `base-prototype` canonical seven-card registry.

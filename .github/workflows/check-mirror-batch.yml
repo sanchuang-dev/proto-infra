@@ -81,7 +81,7 @@ jobs:
           echo "STATIC_SOURCE_SNAPSHOTS=valid"
           bash scripts/build-lab-portal.sh "$RUNNER_TEMP/generated-portal"
           test -s "$RUNNER_TEMP/generated-portal/index.html"
-          test "$(grep -o 'class="open-link"' "$RUNNER_TEMP/generated-portal/index.html" | wc -l)" -eq 6
+          test "$(grep -o 'class="open-link"' "$RUNNER_TEMP/generated-portal/index.html" | wc -l)" -eq 7
           ! grep -Fq 'class="project-repo"' "$RUNNER_TEMP/generated-portal/index.html"
           ! grep -Fq 'GitHub 项目仓库 ↗' "$RUNNER_TEMP/generated-portal/index.html"
           echo "PORTAL_GITHUB_REPO_ACTIONS=hidden"
