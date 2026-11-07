@@ -1,0 +1,57 @@
+name: Check fitness mirror prototype release
+on:
+  push:
+    branches: [dev, test]
+    paths:
+      - Caddyfile
+      - scripts/prepare-fitness-mirror.sh
+      - scripts/install-fitness-mirror.sh
+      - .github/workflows/deploy-fitness-mirror.yml
+      - .github/workflows/check-fitness-mirror.yml
+  pull_request:
+    branches: [dev, test, prod]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate scripts and pinned source
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/prepare-fitness-mirror.sh scripts/install-fitness-mirror.sh
+          bash scripts/prepare-fitness-mirror.sh "$RUNNER_TEMP/fitness"
+          mkdir -p "$RUNNER_TEMP/unpack"
+          tar -xzf "$RUNNER_TEMP/fitness/fitness-mirror.tar.gz" -C "$RUNNER_TEMP/unpack"
+          for f in index.html gym.html hotel.html assets/mirror.css assets/mirror.js assets/stock/credits.json; do
+            test -s "$RUNNER_TEMP/unpack/$f"
+          done
+          test "$(find "$RUNNER_TEMP/unpack/assets/stock" -name '*.jpg' | wc -l)" -eq 12
+          test "$(grep -Fc 'fitness-mirror.proto.3cgroup.cn {' Caddyfile)" -eq 1
+          grep -Fq 'demo {env.PROTO_AI_MIRROR_HASH}' Caddyfile
+          grep -Fq 'root * /srv/proto/fitness-mirror/current' Caddyfile
+          grep -Fq 'header X-Robots-Tag "noindex, nofollow"' Caddyfile
+          echo 'FITNESS_SNAPSHOT=verified'
+      - name: Validate Caddyfile with dummy hashes only
+        shell: bash
+        run: |
+          set -euo pipefail
+          example_hash='$2a$14$Zkx19XLiW6VYouLHR5NmfOFU0z2GTNmpkT/5qqR7hx4IjWJPDhjvG'
+          docker run --rm --network none \
+            --env "PROTO_AI_MIRROR_HASH=$example_hash" \
+            --env "PROTO_BEAUTY_MIRROR_HASH=$example_hash" \
+            --env "PROTO_HAIR_MIRROR_HASH=$example_hash" \
+            --env "PROTO_FITTING_MIRROR_HASH=$example_hash" \
+            --volume "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2.11.7 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          echo 'FITNESS_CADDY_VALID=verified'
