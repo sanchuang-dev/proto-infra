@@ -18,6 +18,10 @@ grep -Fq 'WECHAT_CONFIG_MASTER_KEY_FILE=/run/local-life-wechat/master-key.b64' "
   fail "installer recognizes the exact file-based master-key setting"
 grep -Fq 'target=/run/local-life-wechat,readonly' "$installer" ||
   fail "installer mounts the key file read-only"
+grep -Fq 'Unexpected entries in WeChat master-key directory' "$installer" ||
+  fail "installer rejects unexpected files in the mounted secret directory"
+grep -Fq 'test ! -L "$secret_dir"' "$installer" ||
+  fail "installer rejects a symlinked secret directory"
 grep -Fq 'WECHAT_CONFIG_MASTER_KEY(_FILE)?' "$installer" ||
   fail "installer rejects inline production key configuration"
 grep -Fq 'restart)' "$installer" ||
