@@ -52,8 +52,12 @@ grep -Fq 'pkeyopt rsa_oaep_md:sha256' "$workflow" ||
   fail "workflow uses OAEP-SHA256"
 grep -Fq 'retention-days: 7' "$workflow" ||
   fail "workflow retains only a short-lived encrypted backup"
-! grep -Eq '(^|[[:space:]])set -x|echo[[:space:]].*key_b64' "$bootstrap" "$workflow" ||
-  fail "workflow and bootstrap do not trace or print key material"
+! grep -Eq '(^|[[:space:]])set -x' "$bootstrap" "$workflow" ||
+  fail "workflow and bootstrap do not enable shell tracing"
+! grep -Fq 'echo "$key_b64"' "$bootstrap" "$workflow" ||
+  fail "workflow and bootstrap do not print key material"
+grep -Fq '::add-mask::$key_b64' "$workflow" ||
+  fail "workflow masks the generated key in runner logs"
 
 printf 'LOCAL_LIFE_WECHAT_KEY_BOOTSTRAP_TEST=PASS\n'
 
