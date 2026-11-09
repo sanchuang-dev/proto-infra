@@ -16,7 +16,7 @@ grep -Fq 'WECHAT_CONFIG_MASTER_KEY_FILE=/run/wechat-config-master-key' "$install
   fail "installer recognizes the exact file-based master-key setting"
 grep -Fq 'target=/run/wechat-config-master-key,readonly' "$installer" ||
   fail "installer mounts the key file read-only"
-grep -Fq 'WECHAT_CONFIG_MASTER_KEY=' "$installer" ||
+grep -Fq 'WECHAT_CONFIG_MASTER_KEY(_FILE)?' "$installer" ||
   fail "installer rejects inline production key configuration"
 grep -Fq 'restart)' "$installer" ||
   fail "installer has a bounded API restart mode"
