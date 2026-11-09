@@ -15,6 +15,7 @@ secret_dir="$base/wechat-secret"
 key_file="$secret_dir/master-key.b64"
 container=local-life-mvp-api
 sha_file="$base/current.sha"
+db="$base/data/local-life.sqlite"
 
 [[ "$stage" =~ ^/tmp/local-life-mvp-release\.[A-Za-z0-9]+$ ]] || {
     echo 'Invalid temporary stage path' >&2
@@ -60,6 +61,21 @@ preflight() {
         echo 'A WeChat master-key file already exists; refusing overwrite or rotation' >&2
         return 1
     fi
+
+    # Never generate a replacement key over existing encrypted credentials or
+    # identity history. These are read-only row-count guards; no row data is read.
+    test -s "$db"
+    command -v sqlite3 >/dev/null
+    config_rows="$(sqlite3 -readonly "$db" 'SELECT COUNT(*) FROM wechat_oauth_configs;')"
+    identity_rows="$(sqlite3 -readonly "$db" 'SELECT COUNT(*) FROM wechat_identities;')"
+    test "$config_rows" = 0 || {
+        echo 'Existing WeChat OAuth config rows found; refusing new master-key initialization' >&2
+        return 1
+    }
+    test "$identity_rows" = 0 || {
+        echo 'Existing WeChat identity rows found; refusing new master-key initialization' >&2
+        return 1
+    }
 
     sha="$(cat "$sha_file")"
     [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || {
