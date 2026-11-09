@@ -63,6 +63,10 @@ backup_line="$(grep -nF 'name: Upload only the recipient-encrypted master-key ba
 apply_line="$(grep -nF 'id: apply' "$workflow" | cut -d: -f1)"
 test "$prepare_line" -lt "$backup_line" && test "$backup_line" -lt "$apply_line" ||
   fail "encrypted backup is uploaded before the server is mutated"
+! grep -Fq 'STAGE: ${{ env.STAGE }}' "$workflow" ||
+  fail "workflow does not resolve a runner-generated stage through server-side expressions"
+grep -Fq 'if [[ -z "${STAGE:-}" ]]' "$workflow" ||
+  fail "cleanup handles an absent runtime stage without leaving a temp directory"
 ! grep -Eq '(^|[[:space:]])set -x' "$bootstrap" "$workflow" ||
   fail "workflow and bootstrap do not enable shell tracing"
 ! grep -Fq 'echo "$key_b64"' "$bootstrap" "$workflow" ||
