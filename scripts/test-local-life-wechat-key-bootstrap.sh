@@ -46,6 +46,13 @@ grep -Fq 'WECHAT_CONFIG_MASTER_KEY_FILE=/run/local-life-wechat/master-key.b64' "
   fail "bootstrap configures the file-based master-key path"
 grep -Fq 'MVP_WECHAT_MASTER_KEY_ROLLBACK_VERIFIED=yes' "$bootstrap" ||
   fail "bootstrap verifies rollback when restart fails"
+rollback_block="$(sed -n '/^rollback() {/,/^}/p' "$bootstrap")"
+stop_line="$(printf '%s\\n' "$rollback_block" | grep -nF 'docker stop -t 12 "$container"' | cut -d: -f1)"
+remove_line="$(printf '%s\\n' "$rollback_block" | grep -nF 'rm -f "$key_file"' | cut -d: -f1)"
+test -n "$stop_line" && test -n "$remove_line" && test "$stop_line" -lt "$remove_line" ||
+  fail "rollback stops the container before unlinking its bind-mounted key"
+grep -Fq 'docker info >/dev/null 2>&1 || return 1' "$bootstrap" ||
+  fail "rollback preserves the secret if Docker state cannot be verified"
 grep -Fq 'sqlite3 -readonly' "$bootstrap" ||
   fail "bootstrap reads SQLite only in read-only mode"
 grep -Fq 'SELECT COUNT(*) FROM wechat_oauth_configs' "$bootstrap" ||
