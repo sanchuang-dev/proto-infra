@@ -26,6 +26,17 @@ mig_count() {
 }
 start_api() {
     local selected_image="$1"
+    local key_file="$base/config/wechat-config-master-key"
+    local secret_mount=()
+    if grep -Fxq 'WECHAT_CONFIG_MASTER_KEY_FILE=/run/wechat-config-master-key' "$env_file"; then
+        test -s "$key_file" || { echo 'WeChat master-key file is missing' >&2; return 1; }
+        test "$(stat -c '%a' "$key_file")" = 440 || { echo 'WeChat master-key file mode must be 0440' >&2; return 1; }
+        test "$(stat -c '%u:%g' "$key_file")" = '0:1000' || { echo 'WeChat master-key file owner must be root:1000' >&2; return 1; }
+        secret_mount=(--mount "type=bind,source=$key_file,target=/run/wechat-config-master-key,readonly")
+    elif grep -Eq '^[[:space:]]*WECHAT_CONFIG_MASTER_KEY(_FILE)?[[:space:]]*=' "$env_file" || test -e "$key_file"; then
+        echo 'Inconsistent WeChat master-key file configuration; refusing API start' >&2
+        return 1
+    fi
     docker run -d --name "$container" \
         --restart unless-stopped \
         --user 1000:1000 \
@@ -35,6 +46,7 @@ start_api() {
         --log-opt max-size=10m --log-opt max-file=3 \
         -p 127.0.0.1:18081:4080 \
         --mount "type=bind,source=$base/data,target=/data" \
+        "${secret_mount[@]}" \
         --env-file "$env_file" "$selected_image" >/dev/null
 }
 api_ready() {
@@ -77,6 +89,25 @@ restore_link() {
     fi
 }
 case "$mode" in
+  restart)
+    test -s "$env_file"
+    test "$(stat -c '%a' "$env_file")" = 600
+    current_sha="$(cat "$base/current.sha")"
+    test "$current_sha" = "$sha"
+    docker image inspect "$image" >/dev/null
+    docker inspect -f '{{.State.Running}}' "$container" | grep -qx true
+    test "$(docker inspect -f '{{.Config.Image}}' "$container")" = "$image"
+    docker stop -t 12 "$container" >/dev/null
+    docker rm "$container" >/dev/null
+    start_api "$image"
+    if ! api_ready; then
+        docker logs --tail 25 "$container" 2>/dev/null | \
+            sed -E 's/(token|password|secret|cookie)=[^[:space:]]+/\\1=[REDACTED]/Ig' >&2 || true
+        echo 'API restart failed local HTTP health/security checks' >&2
+        exit 1
+    fi
+    echo "MVP_API_RESTART_VERIFIED_SHA=$sha"
+    ;;
   apply)
     for host in local.proto.3cgroup.cn local-admin.proto.3cgroup.cn; do
         grep -Fqx "$host {" /etc/caddy/Caddyfile || {
