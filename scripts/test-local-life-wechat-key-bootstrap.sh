@@ -40,19 +40,25 @@ grep -Fq 'if ! IFS= read -r key_b64 && test -z "${key_b64:-}"' "$bootstrap" ||
   fail "bootstrap accepts a final stdin line with or without a trailing newline"
 grep -Fq 'openssl rand -base64 32 > "$RUNNER_TEMP/wechat-master-key.b64"' "$workflow" ||
   fail "workflow writes a newline-terminated key line for SSH stdin"
-! grep -Fq "openssl rand -base64 32 | tr -d '\\n'" "$workflow" ||
+! grep -Fq "openssl rand -base64 32 | tr -d '\n'" "$workflow" ||
   fail "workflow does not strip the SSH input line delimiter"
 grep -Fq 'WECHAT_CONFIG_MASTER_KEY_FILE=/run/local-life-wechat/master-key.b64' "$bootstrap" ||
   fail "bootstrap configures the file-based master-key path"
 grep -Fq 'MVP_WECHAT_MASTER_KEY_ROLLBACK_VERIFIED=yes' "$bootstrap" ||
   fail "bootstrap verifies rollback when restart fails"
 rollback_block="$(sed -n '/^rollback() {/,/^}/p' "$bootstrap")"
-stop_line="$(printf '%s\\n' "$rollback_block" | grep -nF 'docker stop -t 12 "$container"' | cut -d: -f1)"
-remove_line="$(printf '%s\\n' "$rollback_block" | grep -nF 'rm -f "$key_file"' | cut -d: -f1)"
+stop_line="$(printf '%s\n' "$rollback_block" | grep -nF 'docker stop -t 12 "$container"' | cut -d: -f1)"
+remove_line="$(printf '%s\n' "$rollback_block" | grep -nF 'rm -f "$key_file"' | cut -d: -f1)"
 test -n "$stop_line" && test -n "$remove_line" && test "$stop_line" -lt "$remove_line" ||
   fail "rollback stops the container before unlinking its bind-mounted key"
 grep -Fq 'docker info >/dev/null 2>&1 || return 1' "$bootstrap" ||
   fail "rollback preserves the secret if Docker state cannot be verified"
+grep -Fq 'local rollback_env="$config_dir/.api.env.wechat-rollback.$"' "$bootstrap" ||
+  fail "rollback uses a unique temporary env filename"
+grep -Fq 'DATABASE_PATH=/data/local-life.sqlite' "$bootstrap" ||
+  fail "bootstrap checks the configured database path"
+grep -Fq 'eq .Destination \"/data\"' "$bootstrap" ||
+  fail "bootstrap verifies it is inspecting the API container database mount"
 grep -Fq 'sqlite3 -readonly' "$bootstrap" ||
   fail "bootstrap reads SQLite only in read-only mode"
 grep -Fq 'SELECT COUNT(*) FROM wechat_oauth_configs' "$bootstrap" ||
