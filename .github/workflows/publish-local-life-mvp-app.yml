@@ -9,6 +9,9 @@ on:
       - scripts/install-local-life-mvp-app.sh
       - .github/workflows/publish-local-life-mvp-app.yml
       - docs/local-life-mvp-app-release.md
+      - docs/local-life-mvp-wechat-master-key.md
+      - scripts/bootstrap-local-life-wechat-master-key.sh
+      - scripts/test-local-life-wechat-key-bootstrap.sh
   workflow_dispatch:
     inputs:
       publish:
@@ -21,6 +24,11 @@ on:
         required: false
         type: boolean
         default: false
+      bootstrap_wechat_master_key:
+        description: 'Initialize the Local Life MVP WeChat config master key once (prod-only; refuses an existing key)'
+        required: false
+        type: boolean
+        default: false
       admin_username:
         description: '3-32 character application login name'
         required: false
@@ -30,7 +38,7 @@ on:
         required: false
         type: string
       recipient_public_key_b64:
-        description: 'Base64-encoded 3072-bit RSA public key for encrypted one-time credential delivery'
+        description: 'Base64-encoded 3072-bit RSA public key for encrypted one-time credentials or master-key backup'
         required: false
         type: string
 
@@ -50,7 +58,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash -n scripts/install-local-life-mvp-app.sh
+          bash -n scripts/install-local-life-mvp-app.sh scripts/bootstrap-local-life-wechat-master-key.sh scripts/test-local-life-wechat-key-bootstrap.sh
+          bash scripts/test-local-life-wechat-key-bootstrap.sh
           grep -Fq 'base=/srv/proto/local-life-mvp' scripts/install-local-life-mvp-app.sh
           grep -Fq -- '-p 127.0.0.1:18081:4080' scripts/install-local-life-mvp-app.sh
           grep -Fq "AUTH_DEV_ENABLED=false" scripts/install-local-life-mvp-app.sh
@@ -420,3 +429,165 @@ jobs:
           curl -fsS -b "$jar" "$origin/api/auth/session" | jq -e '.authenticated == false' >/dev/null
           rm -f "$RUNNER_TEMP/admin-bootstrap-password" "$RUNNER_TEMP/admin-login-payload.json" "$jar" "$csrf_json" "$login_json"
           echo 'MVP_ADMIN_HTTPS_LOGIN_AND_LOGOUT=PASS'
+
+
+  bootstrap-wechat-master-key:
+    needs: validate
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'sanchuang-dev/proto-infra' && github.ref == 'refs/heads/prod' && inputs.bootstrap_wechat_master_key == true && inputs.publish == false && inputs.bootstrap_admin == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: local-life-mvp
+    steps:
+      - name: Check out the trusted prod infra scripts
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install SSH client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends sshpass >/dev/null
+
+      - name: Verify host identity and current Local Life MVP state
+        id: preflight
+        shell: bash
+        env:
+          TARGET_HOST: ${{ secrets.PROTO_HOST }}
+          TARGET_USER: ${{ secrets.PROTO_USER }}
+          TARGET_PORT: ${{ secrets.PROTO_SSH_PORT }}
+          SSHPASS: ${{ secrets.PROTO_SSH_KEY }}
+        run: |
+          set -Eeuo pipefail
+          for name in TARGET_HOST TARGET_USER TARGET_PORT SSHPASS; do
+            test -n "${!name:-}" || { echo "::error::Missing $name"; exit 1; }
+          done
+          case "$TARGET_HOST" in 8.148.148.135|proto.3cgroup.cn) ;; *) echo "::error::Unapproved host"; exit 1 ;; esac
+          [[ "$TARGET_PORT" =~ ^[0-9]+$ ]] || exit 1
+          install -d -m 0700 "$RUNNER_TEMP/ssh"
+          ssh-keyscan -T 10 -p "$TARGET_PORT" -t ed25519 "$TARGET_HOST" 2>/dev/null > "$RUNNER_TEMP/ssh/known_hosts"
+          test -s "$RUNNER_TEMP/ssh/known_hosts"
+          fingerprint="$(ssh-keygen -lf "$RUNNER_TEMP/ssh/known_hosts" -E sha256 | awk 'NR==1 {print $2}')"
+          test "$fingerprint" = "SHA256:wRPdG4mucUA07fKN1V/Fes+r38VK0zYWXZ4BYm/6Niw" || {
+            echo "::error::SSH identity mismatch"; exit 1;
+          }
+          ssh_opts=(-o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=12 -p "$TARGET_PORT")
+          scp_opts=(-o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=12 -P "$TARGET_PORT")
+          remote() { sshpass -e ssh -T "${ssh_opts[@]}" "$TARGET_USER@$TARGET_HOST" "$@"; }
+          test "$(remote 'id -u')" = 0 || { echo "::error::SSH account must be root for the bounded bootstrap"; exit 1; }
+          stage="$(remote 'mktemp -d /tmp/local-life-mvp-release.XXXXXX')"
+          [[ "$stage" =~ ^/tmp/local-life-mvp-release\.[A-Za-z0-9]+$ ]] || exit 1
+          printf 'STAGE=%s\n' "$stage" >> "$GITHUB_ENV"
+          sshpass -e scp -q "${scp_opts[@]}" \
+            scripts/bootstrap-local-life-wechat-master-key.sh \
+            scripts/install-local-life-mvp-app.sh \
+            "$TARGET_USER@$TARGET_HOST:$stage/"
+          remote "bash '$stage/bootstrap-local-life-wechat-master-key.sh' preflight '$stage' '$stage/install-local-life-mvp-app.sh'"
+          echo 'MVP_WECHAT_MASTER_KEY_REMOTE_PREFLIGHT=PASS'
+
+      - name: Generate key and encrypt the offline backup for the maintainer
+        id: prepare_key
+        shell: bash
+        env:
+          RECIPIENT_PUBLIC_KEY_B64: ${{ inputs.recipient_public_key_b64 }}
+        run: |
+          set -Eeuo pipefail
+          [[ ${#RECIPIENT_PUBLIC_KEY_B64} -le 10000 ]]
+          [[ "$RECIPIENT_PUBLIC_KEY_B64" =~ ^[A-Za-z0-9+/=]+$ ]]
+          umask 077
+          mkdir -p "$RUNNER_TEMP/wechat-master-key-backup"
+          printf '%s' "$RECIPIENT_PUBLIC_KEY_B64" | base64 --decode > "$RUNNER_TEMP/recipient.pem"
+          openssl rsa -pubin -in "$RUNNER_TEMP/recipient.pem" -noout -text 2>/dev/null |
+            grep -Fq 'Public-Key: (3072 bit)'
+          openssl rand -base64 32 > "$RUNNER_TEMP/wechat-master-key.b64"
+          key_b64="$(cat "$RUNNER_TEMP/wechat-master-key.b64")"
+          echo "::add-mask::$key_b64"
+          [[ "$key_b64" =~ ^[A-Za-z0-9+/]{43}=$ ]]
+          decoded_size="$(printf '%s' "$key_b64" | base64 --decode | wc -c | tr -d '[:space:]')"
+          test "$decoded_size" = 32
+          canonical="$(printf '%s' "$key_b64" | base64 --decode | base64 | tr -d '\n')"
+          test "$canonical" = "$key_b64"
+          openssl pkeyutl -encrypt -pubin -inkey "$RUNNER_TEMP/recipient.pem" \
+            -in "$RUNNER_TEMP/wechat-master-key.b64" \
+            -out "$RUNNER_TEMP/wechat-master-key-backup/master-key.enc" \
+            -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256
+          cat > "$RUNNER_TEMP/wechat-master-key-backup/README.md" <<'README'
+          # Local Life MVP WeChat master-key backup
+
+          This artifact contains only the RSA-OAEP-SHA256 encrypted backup. It is usable as the active key only when the workflow log contains MVP_WECHAT_MASTER_KEY_INITIALIZED=yes.
+
+          Decrypt on the trusted machine holding the matching RSA private key (OpenSSL prompts for its passphrase):
+
+          openssl pkeyutl -decrypt -inkey /path/to/wechat-master-key-private.pem -in master-key.enc -out master-key.b64 -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256
+
+          Validate without printing the key:
+          test "$(base64 --decode < master-key.b64 | wc -c | tr -d '[:space:]')" = 32
+
+          Store the decrypted master-key.b64 only in an encrypted offline password manager or secure backup. Never paste it into GitHub, chat, an Issue, or a log. The matching key generation label is printed as MVP_WECHAT_MASTER_KEY_ID in the successful workflow log.
+          README
+          echo 'MVP_WECHAT_MASTER_KEY_BACKUP_ENCRYPTED=yes'
+
+      - name: Upload only the recipient-encrypted master-key backup
+        if: steps.prepare_key.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-life-mvp-wechat-master-key-backup-${{ github.run_id }}
+          path: ${{ runner.temp }}/wechat-master-key-backup/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Send the key only over pinned SSH stdin and restart the current image
+        id: apply
+        shell: bash
+        env:
+          TARGET_HOST: ${{ secrets.PROTO_HOST }}
+          TARGET_USER: ${{ secrets.PROTO_USER }}
+          TARGET_PORT: ${{ secrets.PROTO_SSH_PORT }}
+          SSHPASS: ${{ secrets.PROTO_SSH_KEY }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$STAGE" =~ ^/tmp/local-life-mvp-release\.[A-Za-z0-9]+$ ]]
+          ssh_opts=(-o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=12 -p "$TARGET_PORT")
+          sshpass -e ssh -T "${ssh_opts[@]}" "$TARGET_USER@$TARGET_HOST" \
+            "bash '$STAGE/bootstrap-local-life-wechat-master-key.sh' apply '$STAGE' '$STAGE/install-local-life-mvp-app.sh'" \
+            < "$RUNNER_TEMP/wechat-master-key.b64"
+
+      - name: Verify both public origins still serve the same API safely
+        if: steps.apply.outcome == 'success'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for host in local.proto.3cgroup.cn local-admin.proto.3cgroup.cn; do
+            curl -fsS --connect-timeout 8 --max-time 20 "https://$host/api/healthz" |
+              grep -Fq '"service":"local-life-api"'
+            status="$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 8 --max-time 20 \
+              "https://$host/api/admin/communities")"
+            test "$status" = 401
+            echo "MVP_WECHAT_MASTER_KEY_PUBLIC_API_CHECK_PASS=$host"
+          done
+          curl -fsS --connect-timeout 8 --max-time 20 https://local.proto.3cgroup.cn/api/auth/methods |
+            grep -Fq '"developmentResidentLogin":false'
+          echo 'MVP_WECHAT_MASTER_KEY_PUBLIC_HEALTH_AND_AUTH=PASS'
+
+      - name: Remove unused preflight stage when no rollback is pending
+        if: always() && steps.apply.outcome != 'failure'
+        shell: bash
+        env:
+          TARGET_HOST: ${{ secrets.PROTO_HOST }}
+          TARGET_USER: ${{ secrets.PROTO_USER }}
+          TARGET_PORT: ${{ secrets.PROTO_SSH_PORT }}
+          SSHPASS: ${{ secrets.PROTO_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${STAGE:-}" ]]; then exit 0; fi
+          ssh_opts=(-o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=12 -p "$TARGET_PORT")
+          sshpass -e ssh -T "${ssh_opts[@]}" "$TARGET_USER@$TARGET_HOST" "rm -rf -- '$STAGE'"
+
+      - name: Remove plaintext key material from the ephemeral runner
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/wechat-master-key.b64" "$RUNNER_TEMP/recipient.pem"
