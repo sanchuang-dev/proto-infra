@@ -14,9 +14,9 @@ fail() {
 test -s "$installer" || fail "installer exists"
 bash -n "$installer" || fail "installer syntax"
 
-grep -Fq 'WECHAT_CONFIG_MASTER_KEY_FILE=/run/wechat-config-master-key' "$installer" ||
+grep -Fq 'WECHAT_CONFIG_MASTER_KEY_FILE=/run/local-life-wechat/master-key.b64' "$installer" ||
   fail "installer recognizes the exact file-based master-key setting"
-grep -Fq 'target=/run/wechat-config-master-key,readonly' "$installer" ||
+grep -Fq 'target=/run/local-life-wechat,readonly' "$installer" ||
   fail "installer mounts the key file read-only"
 grep -Fq 'WECHAT_CONFIG_MASTER_KEY(_FILE)?' "$installer" ||
   fail "installer rejects inline production key configuration"
@@ -34,7 +34,7 @@ test -s "$bootstrap" || fail "one-time bootstrap script exists"
 bash -n "$bootstrap" || fail "bootstrap script syntax"
 grep -Fq 'IFS= read -r key_b64' "$bootstrap" ||
   fail "bootstrap reads the key from stdin, not command arguments"
-grep -Fq 'WECHAT_CONFIG_MASTER_KEY_FILE=/run/wechat-config-master-key' "$bootstrap" ||
+grep -Fq 'WECHAT_CONFIG_MASTER_KEY_FILE=/run/local-life-wechat/master-key.b64' "$bootstrap" ||
   fail "bootstrap configures the file-based master-key path"
 grep -Fq 'MVP_WECHAT_MASTER_KEY_ROLLBACK_VERIFIED=yes' "$bootstrap" ||
   fail "bootstrap verifies rollback when restart fails"
