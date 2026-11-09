@@ -68,7 +68,7 @@ preflight() {
     test ! -L "$base/data"
     test ! -L "$db"
     grep -Fxq 'DATABASE_PATH=/data/local-life.sqlite' "$env_file"
-    test "$(docker inspect --format '{{range .Mounts}}{{if eq .Destination \"/data\"}}{{.Source}}{{end}}{{end}}' "$container")" = "$base/data"
+    test "$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}' "$container")" = "$base/data"
 
     test -s "$db"
     command -v sqlite3 >/dev/null
