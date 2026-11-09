@@ -529,6 +529,16 @@ jobs:
           README
           echo 'MVP_WECHAT_MASTER_KEY_BACKUP_ENCRYPTED=yes'
 
+      - name: Upload only the recipient-encrypted master-key backup
+        if: steps.prepare_key.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-life-mvp-wechat-master-key-backup-${{ github.run_id }}
+          path: ${{ runner.temp }}/wechat-master-key-backup/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
       - name: Send the key only over pinned SSH stdin and restart the current image
         id: apply
         shell: bash
@@ -562,16 +572,6 @@ jobs:
           curl -fsS --connect-timeout 8 --max-time 20 https://local.proto.3cgroup.cn/api/auth/methods |
             grep -Fq '"developmentResidentLogin":false'
           echo 'MVP_WECHAT_MASTER_KEY_PUBLIC_HEALTH_AND_AUTH=PASS'
-
-      - name: Upload only the recipient-encrypted master-key backup
-        if: always() && steps.prepare_key.outcome == 'success'
-        uses: actions/upload-artifact@v4
-        with:
-          name: local-life-mvp-wechat-master-key-backup-${{ github.run_id }}
-          path: ${{ runner.temp }}/wechat-master-key-backup/
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 0
 
       - name: Remove unused preflight stage when no rollback is pending
         if: always() && steps.apply.outcome != 'failure' && env.STAGE != ''
