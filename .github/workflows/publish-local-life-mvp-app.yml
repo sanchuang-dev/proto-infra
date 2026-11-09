@@ -501,7 +501,7 @@ jobs:
           printf '%s' "$RECIPIENT_PUBLIC_KEY_B64" | base64 --decode > "$RUNNER_TEMP/recipient.pem"
           openssl rsa -pubin -in "$RUNNER_TEMP/recipient.pem" -noout -text 2>/dev/null |
             grep -Fq 'Public-Key: (3072 bit)'
-          openssl rand -base64 32 | tr -d '\n' > "$RUNNER_TEMP/wechat-master-key.b64"
+          openssl rand -base64 32 > "$RUNNER_TEMP/wechat-master-key.b64"
           key_b64="$(cat "$RUNNER_TEMP/wechat-master-key.b64")"
           echo "::add-mask::$key_b64"
           [[ "$key_b64" =~ ^[A-Za-z0-9+/]{43}=$ ]]
