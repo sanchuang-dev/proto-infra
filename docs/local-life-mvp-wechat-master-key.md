@@ -60,7 +60,7 @@ base64 < wechat-master-key-public.pem | tr -d '\n'
 5. 将上一步的公钥 base64 填入 recipient_public_key_b64。
 6. 启动 workflow；如 local-life-mvp Environment 要求审批，按组织的正常授权完成审批。
 
-工作流会先核对固定服务器、SSH host fingerprint、当前容器镜像 SHA、API 健康状态和密钥不存在，再生成密钥、加密备份并执行服务器初始化。任何已有密钥配置都会触发拒绝，不会覆盖。
+工作流会先核对固定服务器、SSH host fingerprint、当前容器镜像 SHA、API 健康状态和密钥不存在，并以只读方式确认 `wechat_oauth_configs` 与 `wechat_identities` 两张表均无历史记录，再生成密钥、加密备份并执行服务器初始化。任何已有密钥配置或 WeChat 历史记录都会触发拒绝，不会覆盖或重新加密。
 
 成功日志必须同时包含：
 
