@@ -82,7 +82,7 @@ preflight() {
 }
 
 rollback() {
-    local rollback_env="$config_dir/.api.env.wechat-rollback.$"
+    local rollback_env="$config_dir/.api.env.wechat-rollback.$$"
     if test -n "$tmp_key"; then rm -f "$tmp_key" || return 1; tmp_key=""; fi
     cp "$stage/api.env.before" "$rollback_env" || return 1
     chown root:root "$rollback_env" || return 1
@@ -175,7 +175,7 @@ case "$mode" in
     mutated=1
 
     install -d -o root -g 1000 -m 0750 "$secret_dir"
-    tmp_key="$secret_dir/.master-key.$"
+    tmp_key="$secret_dir/.master-key.$$"
     printf '%s' "$key_b64" > "$tmp_key"
     chown root:1000 "$tmp_key"
     chmod 0440 "$tmp_key"
