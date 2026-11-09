@@ -30,6 +30,8 @@ start_api() {
     local key_file="$secret_dir/master-key.b64"
     local secret_mount=()
     if grep -Fxq 'WECHAT_CONFIG_MASTER_KEY_FILE=/run/local-life-wechat/master-key.b64' "$env_file"; then
+        test "$(grep -Ec '^[[:space:]]*WECHAT_CONFIG_MASTER_KEY_FILE[[:space:]]*=' "$env_file" || true)" = 1 || { echo 'Duplicate WeChat master-key file settings' >&2; return 1; }
+        ! grep -Eq '^[[:space:]]*WECHAT_CONFIG_MASTER_KEY[[:space:]]*=' "$env_file" || { echo 'Inline WeChat master key is not permitted in this deployment' >&2; return 1; }
         test -d "$secret_dir" || { echo 'WeChat master-key directory is missing' >&2; return 1; }
         test -s "$key_file" || { echo 'WeChat master-key file is missing' >&2; return 1; }
         test "$(stat -c '%a' "$secret_dir")" = 750 || { echo 'WeChat master-key directory mode must be 0750' >&2; return 1; }
@@ -37,7 +39,7 @@ start_api() {
         test "$(stat -c '%a' "$key_file")" = 440 || { echo 'WeChat master-key file mode must be 0440' >&2; return 1; }
         test "$(stat -c '%u:%g' "$key_file")" = '0:1000' || { echo 'WeChat master-key file owner must be root:1000' >&2; return 1; }
         secret_mount=(--mount "type=bind,source=$secret_dir,target=/run/local-life-wechat,readonly")
-    elif grep -Eq '^[[:space:]]*WECHAT_CONFIG_MASTER_KEY(_FILE)?[[:space:]]*=' "$env_file" || test -e "$key_file" || test -e "$secret_dir"; then
+    elif grep -Eq '^[[:space:]]*WECHAT_CONFIG_MASTER_KEY(_FILE)?[[:space:]]*=' "$env_file" || test -e "$key_file" || test -L "$key_file" || test -e "$secret_dir" || test -L "$secret_dir"; then
         echo 'Inconsistent WeChat master-key file configuration; refusing API start' >&2
         return 1
     fi
