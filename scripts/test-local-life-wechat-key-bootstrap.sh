@@ -3,6 +3,8 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 installer="$root/scripts/install-local-life-mvp-app.sh"
+bootstrap="$root/scripts/bootstrap-local-life-wechat-master-key.sh"
+workflow="$root/.github/workflows/publish-local-life-mvp-app.yml"
 
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
@@ -27,4 +29,31 @@ grep -Fq 'docker inspect -f' "$installer" ||
 ! grep -Fq 'docker inspect -f '\''{{.State.Running}}'\'' "$container" | grep -qx true' "$installer" ||
   fail "restart mode can recover when a failed candidate container is stopped or absent"
 
-printf 'LOCAL_LIFE_WECHAT_INSTALLER_TEST=PASS\n'
+
+test -s "$bootstrap" || fail "one-time bootstrap script exists"
+bash -n "$bootstrap" || fail "bootstrap script syntax"
+grep -Fq 'IFS= read -r key_b64' "$bootstrap" ||
+  fail "bootstrap reads the key from stdin, not command arguments"
+grep -Fq 'WECHAT_CONFIG_MASTER_KEY_FILE=/run/wechat-config-master-key' "$bootstrap" ||
+  fail "bootstrap configures the file-based master-key path"
+grep -Fq 'MVP_WECHAT_MASTER_KEY_ROLLBACK_VERIFIED=yes' "$bootstrap" ||
+  fail "bootstrap verifies rollback when restart fails"
+
+test -s "$workflow" || fail "controlled production workflow exists"
+grep -Fq 'bootstrap_wechat_master_key:' "$workflow" ||
+  fail "controlled workflow exposes a separate key-bootstrap action"
+grep -Fq "inputs.bootstrap_wechat_master_key == true" "$workflow" ||
+  fail "key-bootstrap job requires explicit confirmation"
+grep -Fq "github.ref == 'refs/heads/prod'" "$workflow" ||
+  fail "key-bootstrap job is prod-only"
+grep -Fq 'openssl pkeyutl -encrypt' "$workflow" ||
+  fail "workflow encrypts the backup for the recipient"
+grep -Fq 'pkeyopt rsa_oaep_md:sha256' "$workflow" ||
+  fail "workflow uses OAEP-SHA256"
+grep -Fq 'retention-days: 7' "$workflow" ||
+  fail "workflow retains only a short-lived encrypted backup"
+! grep -Eq '(^|[[:space:]])set -x|echo[[:space:]].*key_b64' "$bootstrap" "$workflow" ||
+  fail "workflow and bootstrap do not trace or print key material"
+
+printf 'LOCAL_LIFE_WECHAT_KEY_BOOTSTRAP_TEST=PASS\n'
+
