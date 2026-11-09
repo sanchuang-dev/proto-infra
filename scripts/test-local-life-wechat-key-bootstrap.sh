@@ -22,5 +22,9 @@ grep -Fq 'restart)' "$installer" ||
   fail "installer has a bounded API restart mode"
 grep -Fq 'MVP_API_RESTART_VERIFIED_SHA=' "$installer" ||
   fail "restart mode reports the exact verified image SHA"
+grep -Fq 'docker inspect -f' "$installer" ||
+  fail "restart mode checks any existing container image before replacing it"
+! grep -Fq 'docker inspect -f '\''{{.State.Running}}'\'' "$container" | grep -qx true' "$installer" ||
+  fail "restart mode can recover when a failed candidate container is stopped or absent"
 
 printf 'LOCAL_LIFE_WECHAT_INSTALLER_TEST=PASS\n'
