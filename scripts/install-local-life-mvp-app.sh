@@ -32,8 +32,9 @@ start_api() {
     if grep -Fxq 'WECHAT_CONFIG_MASTER_KEY_FILE=/run/local-life-wechat/master-key.b64' "$env_file"; then
         test "$(grep -Ec '^[[:space:]]*WECHAT_CONFIG_MASTER_KEY_FILE[[:space:]]*=' "$env_file" || true)" = 1 || { echo 'Duplicate WeChat master-key file settings' >&2; return 1; }
         ! grep -Eq '^[[:space:]]*WECHAT_CONFIG_MASTER_KEY[[:space:]]*=' "$env_file" || { echo 'Inline WeChat master key is not permitted in this deployment' >&2; return 1; }
-        test -d "$secret_dir" || { echo 'WeChat master-key directory is missing' >&2; return 1; }
-        test -s "$key_file" || { echo 'WeChat master-key file is missing' >&2; return 1; }
+        test -d "$secret_dir" && test ! -L "$secret_dir" || { echo 'WeChat master-key directory is missing or is a symlink' >&2; return 1; }
+        test -s "$key_file" && test ! -L "$key_file" || { echo 'WeChat master-key file is missing or is a symlink' >&2; return 1; }
+        test "$(find "$secret_dir" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)" = 'master-key.b64' || { echo 'Unexpected entries in WeChat master-key directory' >&2; return 1; }
         test "$(stat -c '%a' "$secret_dir")" = 750 || { echo 'WeChat master-key directory mode must be 0750' >&2; return 1; }
         test "$(stat -c '%u:%g' "$secret_dir")" = '0:1000' || { echo 'WeChat master-key directory owner must be root:1000' >&2; return 1; }
         test "$(stat -c '%a' "$key_file")" = 440 || { echo 'WeChat master-key file mode must be 0440' >&2; return 1; }
