@@ -58,6 +58,11 @@ grep -Fq 'pkeyopt rsa_oaep_md:sha256' "$workflow" ||
   fail "workflow uses OAEP-SHA256"
 grep -Fq 'retention-days: 7' "$workflow" ||
   fail "workflow retains only a short-lived encrypted backup"
+prepare_line="$(grep -nF 'id: prepare_key' "$workflow" | cut -d: -f1)"
+backup_line="$(grep -nF 'name: Upload only the recipient-encrypted master-key backup' "$workflow" | cut -d: -f1)"
+apply_line="$(grep -nF 'id: apply' "$workflow" | cut -d: -f1)"
+test "$prepare_line" -lt "$backup_line" && test "$backup_line" -lt "$apply_line" ||
+  fail "encrypted backup is uploaded before the server is mutated"
 ! grep -Eq '(^|[[:space:]])set -x' "$bootstrap" "$workflow" ||
   fail "workflow and bootstrap do not enable shell tracing"
 ! grep -Fq 'echo "$key_b64"' "$bootstrap" "$workflow" ||
