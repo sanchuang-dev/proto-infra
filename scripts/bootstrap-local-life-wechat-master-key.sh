@@ -98,14 +98,29 @@ preflight() {
 }
 
 rollback() {
-    local rollback_env="$config_dir/.api.env.wechat-rollback.$$"
+    local rollback_env="$config_dir/.api.env.wechat-rollback.$"
+
+    # The candidate API may still hold a bind mount of the secret directory.
+    # Stop and remove it before unlinking the mounted key or its source directory.
+    docker info >/dev/null 2>&1 || return 1
+    if docker inspect "$container" >/dev/null 2>&1; then
+        local running
+        running="$(docker inspect -f '{{.State.Running}}' "$container")" || return 1
+        if test "$running" = true; then
+            docker stop -t 12 "$container" >/dev/null || return 1
+        fi
+        docker rm "$container" >/dev/null || return 1
+    fi
+
     if test -n "$tmp_key"; then rm -f "$tmp_key" || return 1; tmp_key=""; fi
     cp "$stage/api.env.before" "$rollback_env" || return 1
     chown root:root "$rollback_env" || return 1
     chmod 0600 "$rollback_env" || return 1
     mv -f "$rollback_env" "$env_file" || return 1
-    rm -f "$key_file" || return 1
-    rmdir "$secret_dir" || return 1
+    if test -d "$secret_dir"; then
+        rm -f "$key_file" || return 1
+        rmdir "$secret_dir" || return 1
+    fi
 
     if bash "$installer" restart "$stage" "$sha"; then
         mutated=0
