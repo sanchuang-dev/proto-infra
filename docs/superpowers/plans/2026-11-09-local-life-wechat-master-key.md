@@ -49,12 +49,12 @@
 
 **Files:**
 - Create: `scripts/bootstrap-local-life-wechat-master-key.sh`
-- Create: `.github/workflows/bootstrap-local-life-wechat-master-key.yml`
+- Modify: `.github/workflows/publish-local-life-mvp-app.yml` (prod-only job and new dispatch input)
 - Test: `scripts/test-local-life-wechat-key-bootstrap.sh`
 
 **Interfaces:**
 - The remote script accepts `apply <stage> <installer>`; the key is read from stdin, never an argument.
-- The workflow input `initialize_wechat_master_key` defaults to `false`; the privileged job runs only for `workflow_dispatch` from `refs/heads/prod` with the input set to true.
+- The existing controlled workflow input `bootstrap_wechat_master_key` defaults to `false`; the privileged job runs only for `workflow_dispatch` from `refs/heads/prod` with the input set to true and both other action inputs false.
 - The workflow requires a base64-encoded 3072-bit RSA public key; the encrypted backup uses RSA-OAEP with SHA-256 and is the only key-bearing artifact.
 
 - [ ] Extend the regression test with workflow gates, host fingerprint, no-plaintext-artifact and rollback assertions.
@@ -63,13 +63,13 @@
 - [ ] Implement runner-side key generation, recipient encryption, pinned SSH, public health checks, and encrypted artifact upload.
 - [ ] Run the regression test and `bash -n` on both scripts.
 
-### Task 3: Document the operational handoff and verify the branch
+### Task 3: Register the input on main, document the operational handoff, and verify the branch
 
 **Files:**
 - Create: `docs/local-life-mvp-wechat-master-key.md`
 - Modify: `.github/workflows/bootstrap-local-life-wechat-master-key.yml` only if validation reveals a defect.
 
-- [ ] Document public-key creation, encrypted artifact decryption, key backup custody, one-time execution, and the separate AppSecret/OAuth acceptance.
+- [ ] Add a separate PR for the job-free main-branch registration stub, adding only the new dispatch input and preserving the registration-only job.\n- [ ] Document public-key creation, encrypted artifact decryption, key backup custody, one-time execution, and the separate AppSecret/OAuth acceptance.
 - [ ] Run all repository shell-script checks relevant to the changed files and inspect the complete diff.
 - [ ] Confirm the workflow contains no automatic deploy trigger and no secret value in repository content.
 - [ ] Create the PR against `dev`; retain the Issue open until online initialization evidence exists.
