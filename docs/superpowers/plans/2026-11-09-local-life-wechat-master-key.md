@@ -21,7 +21,7 @@
 - The restart must use the exact SHA recorded in /srv/proto/local-life-mvp/current.sha; no image build, database migration, or data write is allowed.
 
 ## Review Focus
-- Existing inline/file master-key configuration or an orphan secret directory: initialization refuses before mutation.
+- Existing inline/file master-key configuration, an orphan secret directory, or any row in `wechat_oauth_configs` / `wechat_identities`: initialization refuses before mutation.
 - Invalid public key or non-3072-bit RSA key: workflow stops before SSH mutation.
 - Unreadable/malformed server key file: container health fails and rollback restores the previous config.
 - Existing API container SHA drift: restart refuses instead of silently deploying another image.
