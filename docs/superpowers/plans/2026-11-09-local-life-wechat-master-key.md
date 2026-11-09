@@ -16,7 +16,7 @@
 - The key is exactly 32 random bytes, encoded as base64 for WECHAT_CONFIG_MASTER_KEY_FILE.
 - The host directory /srv/proto/local-life-mvp/wechat-secret is root:1000 mode 0750; the key file is root:1000 mode 0440; api.env remains mode 0600.
 - The container remains non-root and receives the secret directory only through a read-only bind mount at /run/local-life-wechat.
-- No key value may appear in logs, command arguments, Issues, PRs, or plaintext artifacts.
+- No key value may appear in logs, command arguments, Issues, PRs, or plaintext artifacts. The encrypted backup must be uploaded successfully before the server receives the key.
 - Initialization must refuse to overwrite any existing key or key configuration.
 - The restart must use the exact SHA recorded in /srv/proto/local-life-mvp/current.sha; no image build, database migration, or data write is allowed.
 
