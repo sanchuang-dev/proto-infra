@@ -144,10 +144,10 @@ case "$mode" in
 
     preflight
 
-    IFS= read -r key_b64 || {
+    if ! IFS= read -r key_b64 && test -z "${key_b64:-}"; then
         echo 'Master key was not supplied on stdin' >&2
         exit 1
-    }
+    fi
     if IFS= read -r extra; then
         echo 'Unexpected extra input after the master key' >&2
         exit 1
