@@ -38,6 +38,12 @@ grep -Fq 'WECHAT_CONFIG_MASTER_KEY_FILE=/run/local-life-wechat/master-key.b64' "
   fail "bootstrap configures the file-based master-key path"
 grep -Fq 'MVP_WECHAT_MASTER_KEY_ROLLBACK_VERIFIED=yes' "$bootstrap" ||
   fail "bootstrap verifies rollback when restart fails"
+grep -Fq 'sqlite3 -readonly' "$bootstrap" ||
+  fail "bootstrap reads SQLite only in read-only mode"
+grep -Fq 'SELECT COUNT(*) FROM wechat_oauth_configs' "$bootstrap" ||
+  fail "bootstrap refuses to re-key existing encrypted credential rows"
+grep -Fq 'SELECT COUNT(*) FROM wechat_identities' "$bootstrap" ||
+  fail "bootstrap refuses to replace an existing WeChat identity history"
 
 test -s "$workflow" || fail "controlled production workflow exists"
 grep -Fq 'bootstrap_wechat_master_key:' "$workflow" ||
