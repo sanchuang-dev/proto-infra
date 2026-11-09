@@ -105,7 +105,7 @@ case "$mode" in
     start_api "$image"
     if ! api_ready; then
         docker logs --tail 25 "$container" 2>/dev/null | \
-            sed -E 's/(token|password|secret|cookie)=[^[:space:]]+/\\1=[REDACTED]/Ig' >&2 || true
+            sed -E 's/(token|password|secret|cookie)=[^[:space:]]+/\1=[REDACTED]/Ig' >&2 || true
         echo 'API restart failed local HTTP health/security checks' >&2
         exit 1
     fi
