@@ -53,11 +53,11 @@ test -n "$stop_line" && test -n "$remove_line" && test "$stop_line" -lt "$remove
   fail "rollback stops the container before unlinking its bind-mounted key"
 grep -Fq 'docker info >/dev/null 2>&1 || return 1' "$bootstrap" ||
   fail "rollback preserves the secret if Docker state cannot be verified"
-grep -Fq 'local rollback_env="$config_dir/.api.env.wechat-rollback.$"' "$bootstrap" ||
+grep -Fq 'local rollback_env="$config_dir/.api.env.wechat-rollback.$$"' "$bootstrap" ||
   fail "rollback uses a unique temporary env filename"
 grep -Fq 'DATABASE_PATH=/data/local-life.sqlite' "$bootstrap" ||
   fail "bootstrap checks the configured database path"
-grep -Fq 'eq .Destination \"/data\"' "$bootstrap" ||
+grep -Fq 'eq .Destination "/data"' "$bootstrap" ||
   fail "bootstrap verifies it is inspecting the API container database mount"
 grep -Fq 'sqlite3 -readonly' "$bootstrap" ||
   fail "bootstrap reads SQLite only in read-only mode"
