@@ -64,6 +64,12 @@ preflight() {
 
     # Never generate a replacement key over existing encrypted credentials or
     # identity history. These are read-only row-count guards; no row data is read.
+    test ! -L "$base"
+    test ! -L "$base/data"
+    test ! -L "$db"
+    grep -Fxq 'DATABASE_PATH=/data/local-life.sqlite' "$env_file"
+    test "$(docker inspect --format '{{range .Mounts}}{{if eq .Destination \"/data\"}}{{.Source}}{{end}}{{end}}' "$container")" = "$base/data"
+
     test -s "$db"
     command -v sqlite3 >/dev/null
     config_rows="$(sqlite3 -readonly "$db" 'SELECT COUNT(*) FROM wechat_oauth_configs;')"
@@ -98,7 +104,7 @@ preflight() {
 }
 
 rollback() {
-    local rollback_env="$config_dir/.api.env.wechat-rollback.$"
+    local rollback_env="$config_dir/.api.env.wechat-rollback.$$"
 
     # The candidate API may still hold a bind mount of the secret directory.
     # Stop and remove it before unlinking the mounted key or its source directory.
