@@ -547,7 +547,6 @@ jobs:
           TARGET_USER: ${{ secrets.PROTO_USER }}
           TARGET_PORT: ${{ secrets.PROTO_SSH_PORT }}
           SSHPASS: ${{ secrets.PROTO_SSH_KEY }}
-          STAGE: ${{ env.STAGE }}
         run: |
           set -Eeuo pipefail
           [[ "$STAGE" =~ ^/tmp/local-life-mvp-release\.[A-Za-z0-9]+$ ]]
@@ -574,7 +573,7 @@ jobs:
           echo 'MVP_WECHAT_MASTER_KEY_PUBLIC_HEALTH_AND_AUTH=PASS'
 
       - name: Remove unused preflight stage when no rollback is pending
-        if: always() && steps.apply.outcome != 'failure' && env.STAGE != ''
+        if: always() && steps.apply.outcome != 'failure'
         shell: bash
         env:
           TARGET_HOST: ${{ secrets.PROTO_HOST }}
@@ -583,6 +582,7 @@ jobs:
           SSHPASS: ${{ secrets.PROTO_SSH_KEY }}
         run: |
           set -euo pipefail
+          if [[ -z "${STAGE:-}" ]]; then exit 0; fi
           ssh_opts=(-o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts" -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 -o ConnectTimeout=12 -p "$TARGET_PORT")
           sshpass -e ssh -T "${ssh_opts[@]}" "$TARGET_USER@$TARGET_HOST" "rm -rf -- '$STAGE'"
 
