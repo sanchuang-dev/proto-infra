@@ -95,10 +95,13 @@ case "$mode" in
     current_sha="$(cat "$base/current.sha")"
     test "$current_sha" = "$sha"
     docker image inspect "$image" >/dev/null
-    docker inspect -f '{{.State.Running}}' "$container" | grep -qx true
-    test "$(docker inspect -f '{{.Config.Image}}' "$container")" = "$image"
-    docker stop -t 12 "$container" >/dev/null
-    docker rm "$container" >/dev/null
+    if docker inspect "$container" >/dev/null 2>&1; then
+        test "$(docker inspect -f '{{.Config.Image}}' "$container")" = "$image"
+        if test "$(docker inspect -f '{{.State.Running}}' "$container")" = true; then
+            docker stop -t 12 "$container" >/dev/null
+        fi
+        docker rm "$container" >/dev/null
+    fi
     start_api "$image"
     if ! api_ready; then
         docker logs --tail 25 "$container" 2>/dev/null | \
