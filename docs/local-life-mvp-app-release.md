@@ -19,7 +19,7 @@ This is the trusted deployment executor for reviewed application artifacts from 
 - SQLite persists in `/srv/proto/local-life-mvp/data/local-life.sqlite` with restricted root-owned backups; config in `/srv/proto/local-life-mvp/config/api.env`.
 - Container is non-root uid 1000 with read-only rootfs, no capabilities, fixed CPU/memory/pid/log bounds.
 - Static artifacts are normalized to Caddy-readable directory/file modes after extraction, independent of the SSH user's umask; the installer verifies the Caddy service account can traverse and read both entrypoints before switching.
-- Fresh config is generated only if missing. `NODE_ENV=production`, `AUTH_DEV_ENABLED=false`, exact two trusted origins, **no shared COOKIE_DOMAIN**. CRMEB/WeChat credentials stay absent until separately authorized and configured directly through secure server-side means.
+- Fresh config is generated only if missing. `NODE_ENV=production`, `AUTH_DEV_ENABLED=false`, exact two trusted origins, **no shared COOKIE_DOMAIN**. CRMEB credentials stay absent. The WeChat master key is initialized only by the prod-only OPS-008 bootstrap job, stored in `/srv/proto/local-life-mvp/wechat-secret` and mounted read-only into the API; AppID/AppSecret remain absent until configured by an administrator in the WeChat settings page. See `docs/local-life-mvp-wechat-master-key.md`.
 
 ## Release gates
 
@@ -33,6 +33,6 @@ This is the trusted deployment executor for reviewed application artifacts from 
 
 ## Limits
 
-The first release **does not** create an administrator account or configure external WeChat OAuth, CRMEB outapi, prizes, payout or payment. Such capabilities must show their existing unavailable state. End-to-end acceptance remains on local-life #65; empty-but-working API+UI is not business acceptance.
+The first release **does not** create an administrator account or configure external WeChat OAuth, CRMEB outapi, prizes, payout or payment. The OPS-008 key bootstrap only makes encrypted credential storage available; it does not configure a real public account or prove OAuth. Such capabilities must show their existing unavailable state. End-to-end acceptance remains on local-life #65; empty-but-working API+UI is not business acceptance.
 
 For automatic post-merge releases, provision **a dedicated fine-grained token or GitHub App installation limited to `proto-infra` Actions:write**, stored as an **environment-scoped secret** in `local-life@mvp`. Then a small `mvp` push workflow can dispatch this trusted prod-only publisher. Do not use or copy the existing high-privilege `PROTO_*` secrets or the maintainer's personal `gh` login token.

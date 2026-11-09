@@ -26,6 +26,24 @@ mig_count() {
 }
 start_api() {
     local selected_image="$1"
+    local secret_dir="$base/wechat-secret"
+    local key_file="$secret_dir/master-key.b64"
+    local secret_mount=()
+    if grep -Fxq 'WECHAT_CONFIG_MASTER_KEY_FILE=/run/local-life-wechat/master-key.b64' "$env_file"; then
+        test "$(grep -Ec '^[[:space:]]*WECHAT_CONFIG_MASTER_KEY_FILE[[:space:]]*=' "$env_file" || true)" = 1 || { echo 'Duplicate WeChat master-key file settings' >&2; return 1; }
+        ! grep -Eq '^[[:space:]]*WECHAT_CONFIG_MASTER_KEY[[:space:]]*=' "$env_file" || { echo 'Inline WeChat master key is not permitted in this deployment' >&2; return 1; }
+        test -d "$secret_dir" && test ! -L "$secret_dir" || { echo 'WeChat master-key directory is missing or is a symlink' >&2; return 1; }
+        test -s "$key_file" && test ! -L "$key_file" || { echo 'WeChat master-key file is missing or is a symlink' >&2; return 1; }
+        test "$(find "$secret_dir" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)" = 'master-key.b64' || { echo 'Unexpected entries in WeChat master-key directory' >&2; return 1; }
+        test "$(stat -c '%a' "$secret_dir")" = 750 || { echo 'WeChat master-key directory mode must be 0750' >&2; return 1; }
+        test "$(stat -c '%u:%g' "$secret_dir")" = '0:1000' || { echo 'WeChat master-key directory owner must be root:1000' >&2; return 1; }
+        test "$(stat -c '%a' "$key_file")" = 440 || { echo 'WeChat master-key file mode must be 0440' >&2; return 1; }
+        test "$(stat -c '%u:%g' "$key_file")" = '0:1000' || { echo 'WeChat master-key file owner must be root:1000' >&2; return 1; }
+        secret_mount=(--mount "type=bind,source=$secret_dir,target=/run/local-life-wechat,readonly")
+    elif grep -Eq '^[[:space:]]*WECHAT_CONFIG_MASTER_KEY(_FILE)?[[:space:]]*=' "$env_file" || test -e "$key_file" || test -L "$key_file" || test -e "$secret_dir" || test -L "$secret_dir"; then
+        echo 'Inconsistent WeChat master-key file configuration; refusing API start' >&2
+        return 1
+    fi
     docker run -d --name "$container" \
         --restart unless-stopped \
         --user 1000:1000 \
@@ -35,6 +53,7 @@ start_api() {
         --log-opt max-size=10m --log-opt max-file=3 \
         -p 127.0.0.1:18081:4080 \
         --mount "type=bind,source=$base/data,target=/data" \
+        "${secret_mount[@]}" \
         --env-file "$env_file" "$selected_image" >/dev/null
 }
 api_ready() {
@@ -77,6 +96,28 @@ restore_link() {
     fi
 }
 case "$mode" in
+  restart)
+    test -s "$env_file"
+    test "$(stat -c '%a' "$env_file")" = 600
+    current_sha="$(cat "$base/current.sha")"
+    test "$current_sha" = "$sha"
+    docker image inspect "$image" >/dev/null
+    if docker inspect "$container" >/dev/null 2>&1; then
+        test "$(docker inspect -f '{{.Config.Image}}' "$container")" = "$image"
+        if test "$(docker inspect -f '{{.State.Running}}' "$container")" = true; then
+            docker stop -t 12 "$container" >/dev/null
+        fi
+        docker rm "$container" >/dev/null
+    fi
+    start_api "$image"
+    if ! api_ready; then
+        docker logs --tail 25 "$container" 2>/dev/null | \
+            sed -E 's/(token|password|secret|cookie)=[^[:space:]]+/\1=[REDACTED]/Ig' >&2 || true
+        echo 'API restart failed local HTTP health/security checks' >&2
+        exit 1
+    fi
+    echo "MVP_API_RESTART_VERIFIED_SHA=$sha"
+    ;;
   apply)
     for host in local.proto.3cgroup.cn local-admin.proto.3cgroup.cn; do
         grep -Fqx "$host {" /etc/caddy/Caddyfile || {
