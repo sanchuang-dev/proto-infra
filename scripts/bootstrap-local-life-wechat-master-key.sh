@@ -11,7 +11,8 @@ installer="${3:?installer}"
 base=/srv/proto/local-life-mvp
 config_dir="$base/config"
 env_file="$config_dir/api.env"
-key_file="$config_dir/wechat-config-master-key"
+secret_dir="$base/wechat-secret"
+key_file="$secret_dir/master-key.b64"
 container=local-life-mvp-api
 sha_file="$base/current.sha"
 
@@ -55,7 +56,7 @@ preflight() {
         echo 'A WeChat master-key setting already exists; refusing overwrite or rotation' >&2
         return 1
     fi
-    if test -e "$key_file" || test -L "$key_file"; then
+    if test -e "$secret_dir" || test -L "$secret_dir"; then
         echo 'A WeChat master-key file already exists; refusing overwrite or rotation' >&2
         return 1
     fi
@@ -69,7 +70,7 @@ preflight() {
     docker image inspect "$image" >/dev/null
     docker inspect -f '{{.State.Running}}' "$container" | grep -qx true
     test "$(docker inspect -f '{{.Config.Image}}' "$container")" = "$image"
-    mount_state="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/run/wechat-config-master-key"}}present{{end}}{{end}}' "$container")"
+    mount_state="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/run/local-life-wechat"}}present{{end}}{{end}}' "$container")"
     test -z "$mount_state"
 
     curl -fsS --max-time 5 http://127.0.0.1:18081/healthz |
@@ -81,12 +82,14 @@ preflight() {
 }
 
 rollback() {
-    local rollback_env="$config_dir/.api.env.wechat-rollback.$$"
+    local rollback_env="$config_dir/.api.env.wechat-rollback.$"
+    if test -n "$tmp_key"; then rm -f "$tmp_key" || return 1; tmp_key=""; fi
     cp "$stage/api.env.before" "$rollback_env" || return 1
     chown root:root "$rollback_env" || return 1
     chmod 0600 "$rollback_env" || return 1
     mv -f "$rollback_env" "$env_file" || return 1
     rm -f "$key_file" || return 1
+    rmdir "$secret_dir" || return 1
 
     if bash "$installer" restart "$stage" "$sha"; then
         mutated=0
@@ -171,7 +174,8 @@ case "$mode" in
     chmod 0600 "$stage/api.env.before"
     mutated=1
 
-    tmp_key="$config_dir/.wechat-config-master-key.$$"
+    install -d -o root -g 1000 -m 0750 "$secret_dir"
+    tmp_key="$secret_dir/.master-key.$"
     printf '%s' "$key_b64" > "$tmp_key"
     chown root:1000 "$tmp_key"
     chmod 0440 "$tmp_key"
@@ -183,22 +187,24 @@ case "$mode" in
     if test "$key_id_count" = 0; then
         printf '\nWECHAT_CONFIG_KEY_ID=v1\n' >> "$tmp_env"
     fi
-    printf 'WECHAT_CONFIG_MASTER_KEY_FILE=/run/wechat-config-master-key\n' >> "$tmp_env"
+    printf 'WECHAT_CONFIG_MASTER_KEY_FILE=/run/local-life-wechat/master-key.b64\n' >> "$tmp_env"
     chown root:root "$tmp_env"
     chmod 0600 "$tmp_env"
     mv -f "$tmp_env" "$env_file"
     tmp_env=''
     unset key_b64
 
+    test "$(stat -c '%a' "$secret_dir")" = 750
+    test "$(stat -c '%u:%g' "$secret_dir")" = '0:1000'
     test "$(stat -c '%a' "$key_file")" = 440
     test "$(stat -c '%u:%g' "$key_file")" = '0:1000'
-    test "$(grep -Fc 'WECHAT_CONFIG_MASTER_KEY_FILE=/run/wechat-config-master-key' "$env_file")" = 1
+    test "$(grep -Fc 'WECHAT_CONFIG_MASTER_KEY_FILE=/run/local-life-wechat/master-key.b64' "$env_file")" = 1
 
     # Verify the non-root API uid can read the mounted key without revealing it.
     docker run --rm --user 1000:1000 --read-only \
-        --mount "type=bind,source=$key_file,target=/run/wechat-config-master-key,readonly" \
+        --mount "type=bind,source=$secret_dir,target=/run/local-life-wechat,readonly" \
         "$image" node --input-type=module -e \
-        'import { readFileSync } from "node:fs"; const value = readFileSync("/run/wechat-config-master-key", "utf8").trim(); const decoded = Buffer.from(value, "base64"); if (decoded.length !== 32 || decoded.toString("base64") !== value) process.exit(1);' \
+        'import { readFileSync } from "node:fs"; const value = readFileSync("/run/local-life-wechat/master-key.b64", "utf8").trim(); const decoded = Buffer.from(value, "base64"); if (decoded.length !== 32 || decoded.toString("base64") !== value) process.exit(1);' \
         >/dev/null
 
     # Restart exactly the image already pinned by current.sha. The installer
@@ -207,9 +213,9 @@ case "$mode" in
 
     test "$(cat "$sha_file")" = "$sha"
     test "$(docker inspect -f '{{.Config.Image}}' "$container")" = "$image"
-    test "$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/run/wechat-config-master-key"}}{{.RW}}{{end}}{{end}}' "$container")" = false
+    test "$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/run/local-life-wechat"}}{{.RW}}{{end}}{{end}}' "$container")" = false
     docker exec "$container" node --input-type=module -e \
-        'import { readFileSync } from "node:fs"; const value = readFileSync("/run/wechat-config-master-key", "utf8").trim(); const decoded = Buffer.from(value, "base64"); if (decoded.length !== 32 || decoded.toString("base64") !== value) process.exit(1);' \
+        'import { readFileSync } from "node:fs"; const value = readFileSync("/run/local-life-wechat/master-key.b64", "utf8").trim(); const decoded = Buffer.from(value, "base64"); if (decoded.length !== 32 || decoded.toString("base64") !== value) process.exit(1);' \
         >/dev/null
 
     mutated=0
