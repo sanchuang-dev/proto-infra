@@ -1,5 +1,5 @@
 # JQ-003: Manual, prod-only, integrity-pinned publish to the existing Android download center.
-# APK must first be deliberately staged as a public prerelease asset of this infra repo.
+# APK is fetched from a deliberately published public release of jianqu-senior-agent.
 name: Publish Jianqu prototype APK
 
 on:
@@ -11,7 +11,7 @@ on:
         type: boolean
         default: false
       release_tag:
-        description: Immutable proto-infra prerelease tag, e.g. jianqu-demo-v0.1.0-b42dc7e
+        description: Immutable public Jianqu prerelease tag, e.g. jianqu-demo-v0.1.0-b42dc7e
         required: true
         type: string
       sha256:
@@ -65,7 +65,7 @@ jobs:
           set -euo pipefail
           apk="$RUNNER_TEMP/jianqu.apk"
           curl -fL --retry 4 --retry-delay 3 --connect-timeout 20 --max-time 240 \
-            "https://github.com/sanchuang-dev/proto-infra/releases/download/$RELEASE_TAG/jianqu-demo.apk" -o "$apk"
+            "https://github.com/sanchuang-dev/jianqu-senior-agent/releases/download/$RELEASE_TAG/jianqu-demo.apk" -o "$apk"
           test "$(stat -c '%s' "$apk")" -eq "$EXPECTED_BYTES"
           printf '%s  %s\n' "$EXPECTED_SHA" "$apk" | sha256sum -c -
           echo 'JIANQU_ASSET=verified'
