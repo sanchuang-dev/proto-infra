@@ -1,0 +1,146 @@
+# JQ-003: Manual, prod-only, integrity-pinned publish to the existing Android download center.
+# APK must first be deliberately staged as a public prerelease asset of this infra repo.
+name: Publish Jianqu prototype APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish one verified prototype APK to /d/ (no production app release)
+        required: true
+        type: boolean
+        default: false
+      release_tag:
+        description: Immutable proto-infra prerelease tag, e.g. jianqu-demo-v0.1.0-b42dc7e
+        required: true
+        type: string
+      sha256:
+        description: Expected SHA-256 hex of jianqu-demo.apk
+        required: true
+        type: string
+      bytes:
+        description: Exact APK byte size (100 KB to 100 MB)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proto-infra-production
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'sanchuang-dev/proto-infra' && github.ref == 'refs/heads/prod' && inputs.publish == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate immutable release reference and installer
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_SHA: ${{ inputs.sha256 }}
+          EXPECTED_BYTES: ${{ inputs.bytes }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^jianqu-demo-v[0-9]+\.[0-9]+\.[0-9]+-[a-f0-9]{7,40}$ ]] || exit 1
+          [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{64}$ ]] || exit 1
+          [[ "$EXPECTED_BYTES" =~ ^[0-9]+$ ]] || exit 1
+          (( EXPECTED_BYTES > 100000 && EXPECTED_BYTES < 100000000 )) || exit 1
+          bash -n scripts/install-jianqu-download.sh
+          test -s downloads/index.html
+          grep -Fq 'href="./3c.apk"' downloads/index.html
+          grep -Fq 'href="./jianqu.apk"' downloads/index.html
+      - name: Fetch pinned, immutable GitHub prerelease asset
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_SHA: ${{ inputs.sha256 }}
+          EXPECTED_BYTES: ${{ inputs.bytes }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="$RUNNER_TEMP/jianqu.apk"
+          curl -fL --retry 4 --retry-delay 3 --connect-timeout 20 --max-time 240 \
+            "https://github.com/sanchuang-dev/proto-infra/releases/download/$RELEASE_TAG/jianqu-demo.apk" -o "$apk"
+          test "$(stat -c '%s' "$apk")" -eq "$EXPECTED_BYTES"
+          printf '%s  %s\n' "$EXPECTED_SHA" "$apk" | sha256sum -c -
+          echo 'JIANQU_ASSET=verified'
+      - name: Upload only Jianqu APK and download index to existing server
+        env:
+          PROTO_HOST: ${{ secrets.PROTO_HOST }}
+          PROTO_USER: ${{ secrets.PROTO_USER }}
+          PROTO_SSH_PORT: ${{ secrets.PROTO_SSH_PORT }}
+          SSHPASS: ${{ secrets.PROTO_SSH_KEY }}
+          EXPECTED_SHA: ${{ inputs.sha256 }}
+          EXPECTED_BYTES: ${{ inputs.bytes }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for key in PROTO_HOST PROTO_USER PROTO_SSH_PORT SSHPASS; do
+            test -n "${!key:-}" || { echo "::error::Missing $key"; exit 1; }
+          done
+          [[ "$PROTO_SSH_PORT" =~ ^[0-9]+$ ]] || exit 1
+          target=$(getent ahostsv4 "$PROTO_HOST" | awk '{print $1}' | sort -u)
+          actual=$(getent ahostsv4 proto.3cgroup.cn | awk '{print $1}' | sort -u)
+          test -n "$target" && test -n "$actual"
+          test -n "$(comm -12 <(printf '%s\n' "$target") <(printf '%s\n' "$actual"))"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends sshpass >/dev/null
+          install -d -m 0700 "$RUNNER_TEMP/ssh"
+          ssh-keyscan -T 10 -p "$PROTO_SSH_PORT" -t ed25519 "$PROTO_HOST" 2>/dev/null \
+            > "$RUNNER_TEMP/ssh/known_hosts"
+          test -s "$RUNNER_TEMP/ssh/known_hosts"
+          observed=$(ssh-keygen -lf "$RUNNER_TEMP/ssh/known_hosts" -E sha256 | awk 'NR==1{print $2}')
+          test "$observed" = "SHA256:wRPdG4mucUA07fKN1V/Fes+r38VK0zYWXZ4BYm/6Niw" || {
+            echo '::error::SSH identity mismatch'; exit 1;
+          }
+          opts=(-o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/ssh/known_hosts" \
+            -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ConnectTimeout=15)
+          host="$PROTO_USER@$PROTO_HOST"
+          available=$(sshpass -e ssh -T -p "$PROTO_SSH_PORT" "${opts[@]}" "$host" \
+            'test -s /srv/proto/portal/current/d/3c.apk && df -Pk /srv/proto/portal/current | tail -1 | tr -s " " | cut -d" " -f4')
+          [[ "$available" =~ ^[0-9]+$ ]] || exit 1
+          (( available > EXPECTED_BYTES / 1024 + 30000 )) || {
+            echo '::error::Insufficient server disk space'; exit 1;
+          }
+          stage=$(sshpass -e ssh -T -p "$PROTO_SSH_PORT" "${opts[@]}" "$host" \
+            'mktemp -d /srv/proto/.jianqu-stage.XXXXXX')
+          [[ "$stage" =~ ^/srv/proto/\.jianqu-stage\.[A-Za-z0-9]+$ ]] || exit 1
+          cleanup() {
+            sshpass -e ssh -T -p "$PROTO_SSH_PORT" "${opts[@]}" "$host" \
+              "test -d '$stage' && rm -rf -- '$stage' || true" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          sshpass -e scp -q -P "$PROTO_SSH_PORT" "${opts[@]}" \
+            "$RUNNER_TEMP/jianqu.apk" "$host:$stage/jianqu.apk"
+          sshpass -e scp -q -P "$PROTO_SSH_PORT" "${opts[@]}" \
+            downloads/index.html scripts/install-jianqu-download.sh "$host:$stage/"
+          sshpass -e ssh -T -p "$PROTO_SSH_PORT" "${opts[@]}" "$host" \
+            "bash '$stage/install-jianqu-download.sh' '$stage' '$EXPECTED_SHA' '$EXPECTED_BYTES'"
+      - name: Verify public HTTPS and original Chromium download
+        env:
+          EXPECTED_BYTES: ${{ inputs.bytes }}
+          EXPECTED_SHA: ${{ inputs.sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=https://proto.3cgroup.cn
+          curl -fsSL --retry 4 --retry-delay 3 --max-time 25 "$base/d/" -o "$RUNNER_TEMP/index.html"
+          grep -Fq 'href="./3c.apk"' "$RUNNER_TEMP/index.html"
+          grep -Fq 'href="./jianqu.apk"' "$RUNNER_TEMP/index.html"
+          curl -fsSI --max-time 30 "$base/d/jianqu.apk" -o "$RUNNER_TEMP/jianqu.headers"
+          tr -d '\r' < "$RUNNER_TEMP/jianqu.headers" | grep -Fqi "content-length: $EXPECTED_BYTES"
+          code=$(curl -fsSL --range 0-15 --max-time 25 -o "$RUNNER_TEMP/apk-prefix" -w '%{http_code}' "$base/d/jianqu.apk")
+          test "$code" = 206
+          test "$(stat -c '%s' "$RUNNER_TEMP/apk-prefix")" -eq 16
+          curl -fsSL --max-time 25 "$base/d/jianqu.sha256" -o "$RUNNER_TEMP/sha"
+          grep -Fq "$EXPECTED_SHA  jianqu.apk" "$RUNNER_TEMP/sha"
+          curl -fsSI --max-time 25 "$base/d/3c.apk" -o "$RUNNER_TEMP/3c.headers"
+          tr -d '\r' < "$RUNNER_TEMP/3c.headers" | grep -Fqi 'content-length: 317264746'
+          curl -fsSL --max-time 25 "$base/" -o "$RUNNER_TEMP/portal.html"
+          grep -Fq '三创 · 演示中心' "$RUNNER_TEMP/portal.html"
+          echo "JIANQU_DOWNLOAD_LIVE=$base/d/jianqu.apk"
